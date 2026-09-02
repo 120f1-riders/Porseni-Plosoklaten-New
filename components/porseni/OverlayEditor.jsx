@@ -1,0 +1,115 @@
+'use client'
+
+import { useEffect, useRef, useState } from 'react'
+import { Label } from '@/components/ui/label'
+import { Input } from '@/components/ui/input'
+import { Slider } from '@/components/ui/slider'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
+
+export default function OverlayEditor({ templateSrc, fields, onChange, sampleValues = {} }) {
+  const ref = useRef(null)
+  const [cw, setCw] = useState(600)
+  const [dragIdx, setDragIdx] = useState(-1)
+  const [sel, setSel] = useState(0)
+
+  useEffect(() => {
+    const measure = () => { if (ref.current) setCw(ref.current.offsetWidth) }
+    measure()
+    window.addEventListener('resize', measure)
+    return () => window.removeEventListener('resize', measure)
+  }, [templateSrc])
+
+  const update = (i, patch) => onChange(fields.map((f, j) => (j === i ? { ...f, ...patch } : f)))
+
+  const onMove = (e) => {
+    if (dragIdx < 0 || !ref.current) return
+    const rect = ref.current.getBoundingClientRect()
+    const x = Math.min(100, Math.max(0, ((e.clientX - rect.left) / rect.width) * 100))
+    const y = Math.min(100, Math.max(0, ((e.clientY - rect.top) / rect.height) * 100))
+    update(dragIdx, { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 })
+  }
+
+  const s = fields[sel]
+
+  return (
+    <div className="grid lg:grid-cols-3 gap-4">
+      <div className="lg:col-span-2">
+        <div
+          ref={ref}
+          className="relative select-none border rounded-lg overflow-hidden bg-muted touch-none"
+          onPointerMove={onMove}
+          onPointerUp={() => setDragIdx(-1)}
+          onPointerLeave={() => setDragIdx(-1)}
+        >
+          <img src={templateSrc} alt="template" className="w-full block pointer-events-none" onLoad={() => ref.current && setCw(ref.current.offsetWidth)} />
+          {fields.map((f, i) => {
+            if (f.type === 'photo') {
+              return (
+                <div
+                  key={i}
+                  onPointerDown={() => { setDragIdx(i); setSel(i) }}
+                  style={{ left: f.x + '%', top: f.y + '%', width: (f.w || 22) + '%', height: (f.h || 30) + '%' }}
+                  className={`absolute flex items-center justify-center text-[10px] font-medium bg-primary/15 cursor-move border-2 ${sel === i ? 'border-primary' : 'border-dashed border-gray-500'}`}
+                >FOTO</div>
+              )
+            }
+            return (
+              <div
+                key={i}
+                onPointerDown={() => { setDragIdx(i); setSel(i) }}
+                style={{ left: f.x + '%', top: f.y + '%', transform: 'translate(-50%,-50%)', color: f.color, fontFamily: f.font, fontWeight: f.bold ? 700 : 400, fontSize: (f.size * cw) + 'px' }}
+                className={`absolute whitespace-nowrap cursor-move px-1 leading-none ${sel === i ? 'ring-2 ring-primary rounded' : ''}`}
+              >{sampleValues[f.key] != null ? sampleValues[f.key] : f.label}</div>
+            )
+          })}
+        </div>
+        <p className="text-xs text-muted-foreground mt-2">Seret setiap elemen untuk mengatur posisi. Klik elemen untuk mengedit gaya di panel kanan.</p>
+      </div>
+
+      <div className="space-y-3">
+        <div className="flex flex-wrap gap-1">
+          {fields.map((f, i) => (
+            <button key={i} onClick={() => setSel(i)} className={`text-xs px-2 py-1 rounded border ${sel === i ? 'bg-primary text-primary-foreground border-primary' : 'bg-background'}`}>{f.key}</button>
+          ))}
+        </div>
+        {s && (
+          <div className="border rounded-lg p-3 space-y-3">
+            <div className="text-sm font-semibold">{s.type === 'photo' ? 'Kotak Foto' : 'Teks'}: {s.key}</div>
+            {s.type === 'photo' ? (
+              <>
+                <div><Label className="text-xs">Lebar ({s.w || 22}%)</Label><Slider min={5} max={60} step={1} value={[s.w || 22]} onValueChange={([v]) => update(sel, { w: v })} /></div>
+                <div><Label className="text-xs">Tinggi ({s.h || 30}%)</Label><Slider min={5} max={70} step={1} value={[s.h || 30]} onValueChange={([v]) => update(sel, { h: v })} /></div>
+              </>
+            ) : (
+              <>
+                {!s.key.match(/name|rank|role|lomba|madrasah|nomor/) && (
+                  <div><Label className="text-xs">Teks</Label><Input value={s.label || ''} onChange={(e) => update(sel, { label: e.target.value })} /></div>
+                )}
+                <div><Label className="text-xs">Ukuran ({Math.round(s.size * 1000)})</Label><Slider min={15} max={90} step={1} value={[Math.round(s.size * 1000)]} onValueChange={([v]) => update(sel, { size: v / 1000 })} /></div>
+                <div className="flex items-center gap-2">
+                  <div className="flex-1"><Label className="text-xs">Warna</Label><Input type="color" value={s.color} onChange={(e) => update(sel, { color: e.target.value })} className="h-9 p-1" /></div>
+                  <div className="flex-1">
+                    <Label className="text-xs">Perataan</Label>
+                    <Select value={s.align} onValueChange={(v) => update(sel, { align: v })}>
+                      <SelectTrigger className="h-9"><SelectValue /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="left">Kiri</SelectItem>
+                        <SelectItem value="center">Tengah</SelectItem>
+                        <SelectItem value="right">Kanan</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={!!s.bold} onChange={(e) => update(sel, { bold: e.target.checked })} /> Tebal (Bold)</label>
+              </>
+            )}
+            <div className="grid grid-cols-2 gap-2">
+              <div><Label className="text-xs">X ({s.x}%)</Label><Slider min={0} max={100} step={0.5} value={[s.x]} onValueChange={([v]) => update(sel, { x: v })} /></div>
+              <div><Label className="text-xs">Y ({s.y}%)</Label><Slider min={0} max={100} step={0.5} value={[s.y]} onValueChange={([v]) => update(sel, { y: v })} /></div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
