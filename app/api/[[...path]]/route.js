@@ -42,6 +42,15 @@ function clean(doc) {
   return rest
 }
 
+const REQUIRED_FILE_KEYS = ['akte', 'surat_ket', 'pas_photo']
+
+function computeComplete(doc) {
+  const files = doc.files || {}
+  const hasAllFiles = REQUIRED_FILE_KEYS.every((k) => files[k] && files[k].id)
+  const hasData = !!(doc.participant_name && doc.gender && doc.lomba_id)
+  return hasData && hasAllFiles
+}
+
 async function getUser(request) {
   const auth = request.headers.get('authorization') || ''
   const token = auth.startsWith('Bearer ') ? auth.slice(7) : null
@@ -150,7 +159,7 @@ async function handleRoute(request, { params }) {
       const u = await getUser(request)
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
-      const doc = { id: uuidv4(), name: b.name, category: b.category || 'Olahraga', judging_criteria: b.judging_criteria || [], created_at: new Date() }
+      const doc = { id: uuidv4(), name: b.name, category: b.category || 'Olahraga', type: b.type || 'individu', judging_criteria: b.judging_criteria || [], created_at: new Date() }
       await db.collection('lomba').insertOne(doc)
       return json(clean(doc))
     }
@@ -159,7 +168,7 @@ async function handleRoute(request, { params }) {
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
       const set = {}
-      ;['name', 'category', 'judging_criteria'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      ;['name', 'category', 'type', 'judging_criteria'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
       await db.collection('lomba').updateOne({ id: p[1] }, { $set: set })
       const doc = await db.collection('lomba').findOne({ id: p[1] })
       return json(clean(doc))
@@ -201,7 +210,7 @@ async function handleRoute(request, { params }) {
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
       let q = {}
       if (u.role === 'admin_madrasah') q = { created_by: u.id }
-      else if (u.role === 'panitia') q = { lomba_id: u.assigned_lomba_id }
+      else if (u.role === 'panitia') q = { lomba_id: u.assigned_lomba_id, complete: true }
       const list = await db.collection('peserta').find(q).sort({ created_at: -1 }).toArray()
       return json(list.map(clean))
     }
@@ -217,6 +226,7 @@ async function handleRoute(request, { params }) {
       const doc = {
         id: uuidv4(),
         participant_name: b.participant_name,
+        gender: b.gender === 'P' ? 'P' : (b.gender === 'L' ? 'L' : ''),
         nisn: b.nisn || '',
         ttl: b.ttl || '',
         madrasah_name: madrasah,
@@ -229,6 +239,7 @@ async function handleRoute(request, { params }) {
         created_by: u.id,
         created_at: new Date(),
       }
+      doc.complete = computeComplete(doc)
       await db.collection('peserta').insertOne(doc)
       return json(clean(doc))
     }
@@ -245,7 +256,14 @@ async function handleRoute(request, { params }) {
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
       const b = await request.json()
       const set = {}
-      ;['participant_name', 'nisn', 'ttl', 'madrasah_name', 'lomba_id', 'files', 'status'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      ;['participant_name', 'gender', 'nisn', 'ttl', 'madrasah_name', 'lomba_id', 'files', 'status'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      if (b.lomba_id !== undefined) {
+        const lomba = await db.collection('lomba').findOne({ id: b.lomba_id })
+        set.lomba_name = lomba ? lomba.name : ''
+      }
+      const existing = await db.collection('peserta').findOne({ id: p[1] })
+      const merged = { ...existing, ...set }
+      set.complete = computeComplete(merged)
       await db.collection('peserta').updateOne({ id: p[1] }, { $set: set })
       const doc = await db.collection('peserta').findOne({ id: p[1] })
       return json(clean(doc))
@@ -294,11 +312,25 @@ async function handleRoute(request, { params }) {
       const b = await request.json()
       // one winner per rank per lomba -> upsert
       await db.collection('juara').deleteMany({ lomba_id: b.lomba_id, rank: b.rank })
-      const peserta = await db.collection('peserta').findOne({ id: b.peserta_id })
-      const doc = {
-        id: uuidv4(), lomba_id: b.lomba_id, peserta_id: b.peserta_id, rank: b.rank,
-        participant_name: peserta ? peserta.participant_name : '', madrasah_name: peserta ? peserta.madrasah_name : '',
-        certificate_url: null, created_at: new Date(),
+      const lomba = await db.collection('lomba').findOne({ id: b.lomba_id })
+      const isGroup = (b.is_group !== undefined) ? !!b.is_group : (lomba && lomba.type === 'kelompok')
+      let doc
+      if (isGroup) {
+        // group winner keyed by madrasah
+        doc = {
+          id: uuidv4(), lomba_id: b.lomba_id, peserta_id: null, rank: b.rank,
+          is_group: true,
+          participant_name: b.madrasah_name || '', madrasah_name: b.madrasah_name || '',
+          certificate_url: null, created_at: new Date(),
+        }
+      } else {
+        const peserta = await db.collection('peserta').findOne({ id: b.peserta_id })
+        doc = {
+          id: uuidv4(), lomba_id: b.lomba_id, peserta_id: b.peserta_id, rank: b.rank,
+          is_group: false,
+          participant_name: peserta ? peserta.participant_name : '', madrasah_name: peserta ? peserta.madrasah_name : '',
+          certificate_url: null, created_at: new Date(),
+        }
       }
       await db.collection('juara').insertOne(doc)
       return json(clean(doc))

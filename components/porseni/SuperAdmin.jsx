@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import {
   Trophy, Users, GraduationCap, Loader2, Plus, Pencil, Trash2, CheckCircle, ShieldCheck,
-  Upload, Award, Download, IdCard, Image as ImageIcon,
+  Upload, Award, Download, IdCard, Image as ImageIcon, Printer, UsersRound, User,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -17,13 +17,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
 import OverlayEditor from '@/components/porseni/OverlayEditor'
-import { CATEGORIES, ROLE_LABEL, CERT_DEFAULT_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
+import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, ROLE_LABEL, CERT_DEFAULT_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
 import { renderOverlay, downloadDataUrl } from '@/lib/porseni/canvasgen'
 
 export default function SuperAdmin({ view }) {
   if (view === 'lomba') return <ManajemenLomba />
   if (view === 'pengguna') return <ManajemenPengguna />
+  if (view === 'pendaftar') return <DataPendaftar />
   if (view === 'sertifikat') return <Sertifikat />
   if (view === 'idcard') return <IdCardManager />
   return <Dashboard />
@@ -42,16 +43,60 @@ function Dashboard() {
     })()
   }, [])
   const pendingUsers = data.users.filter((u) => u.status === 'pending').length
+  const totalL = data.peserta.filter((p) => p.gender === 'L').length
+  const totalP = data.peserta.filter((p) => p.gender === 'P').length
+  const perLomba = data.lomba.map((l) => {
+    const ps = data.peserta.filter((p) => p.lomba_id === l.id)
+    return { ...l, total: ps.length, L: ps.filter((p) => p.gender === 'L').length, P: ps.filter((p) => p.gender === 'P').length }
+  }).sort((a, b) => b.total - a.total)
   return (
     <div>
       <PageHeader title="Dashboard Super Admin" desc="Monitoring keseluruhan Porseni MI Plosoklaten" />
       {loading ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : (
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          <StatCard icon={Trophy} label="Cabang Lomba" value={data.lomba.length} />
-          <StatCard icon={Users} label="Total Peserta" value={data.peserta.length} />
-          <StatCard icon={GraduationCap} label="Pengguna" value={data.users.length} />
-          <StatCard icon={ShieldCheck} label="Menunggu Verifikasi" value={pendingUsers} />
-        </div>
+        <>
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <StatCard icon={Trophy} label="Cabang Lomba" value={data.lomba.length} />
+            <StatCard icon={Users} label="Total Peserta" value={data.peserta.length} />
+            <StatCard icon={GraduationCap} label="Pengguna" value={data.users.length} />
+            <StatCard icon={ShieldCheck} label="Menunggu Verifikasi" value={pendingUsers} />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2 mt-4">
+            <StatCard icon={User} label="Peserta Laki-laki" value={totalL} />
+            <StatCard icon={UsersRound} label="Peserta Perempuan" value={totalP} />
+          </div>
+          <Card className="mt-6">
+            <div className="p-5 border-b">
+              <h3 className="font-semibold">Rekap Pendaftar per Cabang Lomba</h3>
+              <p className="text-sm text-muted-foreground">Jumlah peserta terdaftar untuk setiap cabang lomba</p>
+            </div>
+            {perLomba.length === 0 ? <Empty text="Belum ada cabang lomba." /> : (
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Cabang Lomba</TableHead>
+                    <TableHead>Kategori</TableHead>
+                    <TableHead>Jenis</TableHead>
+                    <TableHead className="text-center">Laki-laki</TableHead>
+                    <TableHead className="text-center">Perempuan</TableHead>
+                    <TableHead className="text-center">Total</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {perLomba.map((l) => (
+                    <TableRow key={l.id}>
+                      <TableCell className="font-medium">{l.name}</TableCell>
+                      <TableCell><Badge variant={l.category === 'Seni' ? 'secondary' : 'default'}>{l.category}</Badge></TableCell>
+                      <TableCell><Badge variant="outline">{l.type === 'kelompok' ? 'Kelompok' : 'Individu'}</Badge></TableCell>
+                      <TableCell className="text-center">{l.L}</TableCell>
+                      <TableCell className="text-center">{l.P}</TableCell>
+                      <TableCell className="text-center font-semibold">{l.total}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            )}
+          </Card>
+        </>
       )}
     </div>
   )
@@ -63,17 +108,17 @@ function ManajemenLomba() {
   const [loading, setLoading] = useState(true)
   const [open, setOpen] = useState(false)
   const [edit, setEdit] = useState(null)
-  const [form, setForm] = useState({ name: '', category: 'Olahraga', criteria: '' })
+  const [form, setForm] = useState({ name: '', category: 'Olahraga', type: 'individu', criteria: '' })
 
   const load = async () => { setLoading(true); try { setList(await api('/lomba')) } catch (e) { toast.error(e.message) } finally { setLoading(false) } }
   useEffect(() => { load() }, [])
 
-  const openNew = () => { setEdit(null); setForm({ name: '', category: 'Olahraga', criteria: '' }); setOpen(true) }
-  const openEdit = (l) => { setEdit(l); setForm({ name: l.name, category: l.category, criteria: (l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') }); setOpen(true) }
+  const openNew = () => { setEdit(null); setForm({ name: '', category: 'Olahraga', type: 'individu', criteria: '' }); setOpen(true) }
+  const openEdit = (l) => { setEdit(l); setForm({ name: l.name, category: l.category, type: l.type || 'individu', criteria: (l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') }); setOpen(true) }
 
   const save = async () => {
     if (!form.name) return toast.error('Nama lomba wajib diisi')
-    const body = { name: form.name, category: form.category, judging_criteria: form.criteria.split(',').map((s) => s.trim()).filter(Boolean) }
+    const body = { name: form.name, category: form.category, type: form.type, judging_criteria: form.criteria.split(',').map((s) => s.trim()).filter(Boolean) }
     try {
       if (edit) await api(`/lomba/${edit.id}`, { method: 'PUT', body })
       else await api('/lomba', { method: 'POST', body })
@@ -90,12 +135,13 @@ function ManajemenLomba() {
       <Card>
         {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : list.length === 0 ? <Empty text="Belum ada lomba. Tambahkan cabang lomba pertama." /> : (
           <Table>
-            <TableHeader><TableRow><TableHead>Nama Lomba</TableHead><TableHead>Kategori</TableHead><TableHead>Kriteria Penilaian</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Nama Lomba</TableHead><TableHead>Kategori</TableHead><TableHead>Jenis</TableHead><TableHead>Kriteria Penilaian</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
             <TableBody>
               {list.map((l) => (
                 <TableRow key={l.id}>
                   <TableCell className="font-medium">{l.name}</TableCell>
                   <TableCell><Badge variant={l.category === 'Seni' ? 'secondary' : 'default'}>{l.category}</Badge></TableCell>
+                  <TableCell><Badge variant="outline">{l.type === 'kelompok' ? 'Kelompok' : 'Individu'}</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">{(l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') || '-'}</TableCell>
                   <TableCell className="text-right">
                     <Button size="icon" variant="ghost" onClick={() => openEdit(l)}><Pencil className="h-4 w-4" /></Button>
@@ -119,6 +165,14 @@ function ManajemenLomba() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{CATEGORIES.map((c) => <SelectItem key={c} value={c}>{c}</SelectItem>)}</SelectContent>
               </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label>Jenis Lomba</Label>
+              <Select value={form.type} onValueChange={(v) => setForm({ ...form, type: v })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>{LOMBA_TYPES.map((t) => <SelectItem key={t.value} value={t.value}>{t.label}</SelectItem>)}</SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Kelompok: juara ditetapkan per Madrasah, sertifikat dapat dicetak untuk seluruh anggota regu.</p>
             </div>
             <div className="space-y-1.5"><Label>Kriteria Penilaian (pisahkan dengan koma)</Label><Textarea value={form.criteria} onChange={(e) => setForm({ ...form, criteria: e.target.value })} placeholder="Kerapian, Keindahan, Ketepatan" /></div>
           </div>
@@ -167,6 +221,123 @@ function ManajemenPengguna() {
           </Table>
         )}
       </Card>
+    </div>
+  )
+}
+
+/* ---------------- DATA PENDAFTAR (cetak keseluruhan) ---------------- */
+function DataPendaftar() {
+  const [peserta, setPeserta] = useState([])
+  const [lomba, setLomba] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [lombaFilter, setLombaFilter] = useState('all')
+  const [genderFilter, setGenderFilter] = useState('all')
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const [p, l] = await Promise.all([api('/peserta'), api('/lomba')])
+        setPeserta(p || []); setLomba(l || [])
+      } catch (e) { toast.error(e.message) } finally { setLoading(false) }
+    })()
+  }, [])
+
+  const rows = peserta
+    .filter((p) => lombaFilter === 'all' ? true : p.lomba_id === lombaFilter)
+    .filter((p) => genderFilter === 'all' ? true : p.gender === genderFilter)
+
+  const doPrint = () => setTimeout(() => window.print(), 150)
+
+  const Sheet = (
+    <div className="sheet">
+      <div style={{ textAlign: 'center', borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
+        <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
+        <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
+        <div style={{ fontSize: 14, marginTop: 4 }}>DAFTAR SELURUH PESERTA{lombaFilter !== 'all' ? ' — ' + (lomba.find((l) => l.id === lombaFilter)?.name || '') : ''}</div>
+      </div>
+      <table className="print-table">
+        <thead><tr><th>No</th><th>No. Peserta</th><th>Nama</th><th>L/P</th><th>Asal Madrasah</th><th>Cabang Lomba</th><th>Status</th></tr></thead>
+        <tbody>
+          {rows.map((p, i) => (
+            <tr key={p.id}>
+              <td style={{ textAlign: 'center' }}>{i + 1}</td>
+              <td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td>
+              <td>{p.participant_name}</td>
+              <td style={{ textAlign: 'center' }}>{p.gender || '-'}</td>
+              <td>{p.madrasah_name}</td>
+              <td>{p.lomba_name}</td>
+              <td style={{ textAlign: 'center' }}>{p.status === 'verified' ? 'Terverifikasi' : 'Menunggu'}</td>
+            </tr>
+          ))}
+          {rows.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+        </tbody>
+      </table>
+      <div style={{ marginTop: 16, fontSize: 13 }}>Total: {rows.length} peserta</div>
+    </div>
+  )
+
+  return (
+    <div>
+      <div className="screen-only">
+        <PageHeader title="Data Pendaftar" desc="Seluruh peserta lintas madrasah & cabang lomba">
+          <Button onClick={doPrint}><Printer className="h-4 w-4 mr-2" />Cetak Semua</Button>
+        </PageHeader>
+        <Card className="p-4 mb-4 flex flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Cabang Lomba:</span>
+            <Select value={lombaFilter} onValueChange={setLombaFilter}>
+              <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua Lomba</SelectItem>
+                {lomba.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Jenis Kelamin:</span>
+            <Select value={genderFilter} onValueChange={setGenderFilter}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua</SelectItem>
+                <SelectItem value="L">Laki-laki</SelectItem>
+                <SelectItem value="P">Perempuan</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <span className="text-xs text-muted-foreground">{rows.length} peserta</span>
+        </Card>
+        <Card>
+          {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : rows.length === 0 ? <Empty text="Belum ada peserta." /> : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>No. Peserta</TableHead>
+                  <TableHead>Nama</TableHead>
+                  <TableHead>L/P</TableHead>
+                  <TableHead>Asal Madrasah</TableHead>
+                  <TableHead>Cabang Lomba</TableHead>
+                  <TableHead>Kelengkapan</TableHead>
+                  <TableHead>Status</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rows.map((p) => (
+                  <TableRow key={p.id}>
+                    <TableCell className="font-mono">{p.nomor_peserta}</TableCell>
+                    <TableCell className="font-medium">{p.participant_name}</TableCell>
+                    <TableCell>{GENDER_LABEL[p.gender] ? p.gender : '-'}</TableCell>
+                    <TableCell>{p.madrasah_name}</TableCell>
+                    <TableCell>{p.lomba_name}</TableCell>
+                    <TableCell>{p.complete ? <Badge className="bg-emerald-600 text-white">Lengkap</Badge> : <Badge variant="outline" className="text-amber-700 border-amber-300">Belum</Badge>}</TableCell>
+                    <TableCell><StatusBadge status={p.status} /></TableCell>
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          )}
+        </Card>
+      </div>
+      <div className="print-only">{Sheet}</div>
     </div>
   )
 }
@@ -270,29 +441,70 @@ function TemplateStudio({ type, defaultFields, targets, loadingTargets, sample }
 
 /* ---------------- SERTIFIKAT ---------------- */
 function Sertifikat() {
-  const [state, setState] = useState({ loading: true, targets: [] })
+  const [raw, setRaw] = useState({ loading: true, juara: [], peserta: [], lomba: [] })
+  const [groupMode, setGroupMode] = useState('peserta') // 'peserta' | 'regu'
+
   useEffect(() => {
     (async () => {
       try {
         const [juara, peserta, lomba] = await Promise.all([api('/juara'), api('/peserta'), api('/lomba')])
-        const lm = Object.fromEntries(lomba.map((l) => [l.id, l.name]))
-        const targets = juara.map((j) => ({
-          label: `${j.rank} - ${j.participant_name}`,
-          filename: `Sertifikat_${(j.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
-          values: { participant_name: j.participant_name, madrasah_name: j.madrasah_name, lomba_name: lm[j.lomba_id] || '', rank: j.rank },
-        }))
-        setState({ loading: false, targets })
-      } catch (e) { toast.error(e.message); setState({ loading: false, targets: [] }) }
+        setRaw({ loading: false, juara: juara || [], peserta: peserta || [], lomba: lomba || [] })
+      } catch (e) { toast.error(e.message); setRaw({ loading: false, juara: [], peserta: [], lomba: [] }) }
     })()
   }, [])
+
+  const lm = Object.fromEntries((raw.lomba || []).map((l) => [l.id, l.name]))
+  const targets = []
+  for (const j of raw.juara || []) {
+    const lombaName = lm[j.lomba_id] || ''
+    if (j.is_group) {
+      if (groupMode === 'regu') {
+        targets.push({
+          label: `${j.rank} - ${j.madrasah_name} (Regu)`,
+          filename: `Sertifikat_${j.rank}_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
+          values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank },
+        })
+      } else {
+        const members = (raw.peserta || []).filter((p) => p.lomba_id === j.lomba_id && p.madrasah_name === j.madrasah_name)
+        if (members.length === 0) {
+          targets.push({
+            label: `${j.rank} - ${j.madrasah_name} (tidak ada anggota)`,
+            filename: `Sertifikat_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
+            values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank },
+          })
+        }
+        members.forEach((p) => targets.push({
+          label: `${j.rank} - ${p.participant_name} (${j.madrasah_name})`,
+          filename: `Sertifikat_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
+          values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: lombaName, rank: j.rank },
+        }))
+      }
+    } else {
+      targets.push({
+        label: `${j.rank} - ${j.participant_name}`,
+        filename: `Sertifikat_${(j.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
+        values: { participant_name: j.participant_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank },
+      })
+    }
+  }
+
+  const hasGroup = (raw.juara || []).some((j) => j.is_group)
+
   return (
     <div>
       <PageHeader title="Manajemen Sertifikat" desc="Unggah template, atur posisi teks, lalu generate sertifikat untuk seluruh juara" />
+      {hasGroup && (
+        <Card className="p-4 mb-6 flex flex-wrap items-center gap-3">
+          <span className="text-sm font-medium">Mode Sertifikat Kelompok:</span>
+          <Button size="sm" variant={groupMode === 'peserta' ? 'default' : 'outline'} onClick={() => setGroupMode('peserta')}>Per Peserta (semua anggota regu)</Button>
+          <Button size="sm" variant={groupMode === 'regu' ? 'default' : 'outline'} onClick={() => setGroupMode('regu')}>Per Regu / Madrasah</Button>
+        </Card>
+      )}
       <TemplateStudio
         type="certificate"
         defaultFields={CERT_DEFAULT_FIELDS}
-        targets={state.targets}
-        loadingTargets={state.loading}
+        targets={targets}
+        loadingTargets={raw.loading}
         sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', rank: 'Juara 1' }}
       />
     </div>

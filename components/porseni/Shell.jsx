@@ -16,6 +16,7 @@ const MENUS = {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'lomba', label: 'Manajemen Lomba', icon: Trophy },
     { id: 'pengguna', label: 'Manajemen Pengguna', icon: ShieldCheck },
+    { id: 'pendaftar', label: 'Data Pendaftar', icon: Users },
     { id: 'sertifikat', label: 'Manajemen Sertifikat', icon: Award },
     { id: 'idcard', label: 'ID Card', icon: IdCard },
   ],

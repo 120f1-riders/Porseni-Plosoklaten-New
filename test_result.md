@@ -132,7 +132,13 @@ backend:
         -comment: "GET public, POST/PUT/DELETE require super_admin. judging_criteria array."
         -working: true
         -agent: "testing"
-        -comment: "✅ ALL TESTS PASSED (3 tests): POST /lomba with super_admin creates lomba with judging_criteria array, GET /lomba public access works, unauthorized POST blocked with 403. Lomba created successfully with UUID."
+        -comment: "ALL TESTS PASSED earlier."
+        -working: "NA"
+        -agent: "main"
+        -comment: "CHANGE: added 'type' field (individu|kelompok) to POST and PUT. Default 'individu'. Please retest POST/PUT persist type and GET returns it."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED (5 tests): POST /lomba with type='individu' returns type='individu', POST /lomba with type='kelompok' returns type='kelompok', POST /lomba WITHOUT type defaults to type='individu', PUT /lomba/:id changing type from individu to kelompok persists correctly, GET /lomba returns type field on all lomba. Type field working as expected."
   - task: "Users management (list/verify/delete) super_admin"
     implemented: true
     working: true
@@ -155,12 +161,15 @@ backend:
     priority: "high"
     needs_retesting: false
     status_history:
-        -working: "NA"
-        -agent: "main"
-        -comment: "admin_madrasah sees created_by; panitia sees assigned lomba_id; super sees all. PUT /peserta/:id/status."
         -working: true
         -agent: "testing"
-        -comment: "✅ ALL TESTS PASSED (6 tests): POST /peserta auto-generates nomor_peserta (001, 002, etc.), drive_path format correct '[Lomba]/[Madrasah]/[Peserta]', role filtering works (admin_madrasah sees only own, panitia sees only assigned lomba_id, super_admin sees all), PUT /peserta/:id/status updates status successfully."
+        -comment: "ALL TESTS PASSED earlier (nomor_peserta auto, drive_path, role filtering, status update)."
+        -working: "NA"
+        -agent: "main"
+        -comment: "CHANGE: added 'gender' (L|P) and computed 'complete' boolean (complete = participant_name+gender+lomba_id present AND files akte+surat_ket+pas_photo all uploaded). POST stores gender+complete. General PUT /peserta/:id now accepts gender+files and RECOMPUTES complete (also updates lomba_name when lomba_id changes). GET /peserta for PANITIA now filters {lomba_id, complete:true} so incomplete peserta are hidden from panitia. admin_madrasah still sees all own; super_admin sees all. Please retest: (1) POST with gender + partial files => complete:false; (2) PUT to add all 3 files => complete:true; (3) panitia GET only sees complete peserta of assigned lomba."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED (7 tests): POST /peserta with gender='L' and no files returns complete=false with nomor_peserta auto-generated, POST /peserta with gender='P' and all 3 files returns complete=true, POST /peserta WITHOUT gender saves gender='' and complete=false even with files present, PUT /peserta/:id adding all 3 files recomputes complete to true, PUT /peserta/:id changing lomba_id updates lomba_name accordingly, GET /peserta as PANITIA returns ONLY complete=true peserta of assigned lomba (incomplete peserta hidden), admin_madrasah GET /peserta returns all own peserta (complete + incomplete), super_admin GET /peserta returns all peserta. Gender field and complete flag working correctly with proper visibility filtering."
   - task: "Hasil upload record + Juara assign/list/delete"
     implemented: true
     working: true
@@ -169,12 +178,15 @@ backend:
     priority: "medium"
     needs_retesting: false
     status_history:
-        -working: "NA"
-        -agent: "main"
-        -comment: "Juara POST upserts one per rank per lomba."
         -working: true
         -agent: "testing"
-        -comment: "✅ ALL TESTS PASSED (4 tests): POST /hasil creates hasil record, GET /hasil?lomba_id= filters correctly, POST /juara upserts winner (one per rank per lomba), GET /juara?lomba_id= returns filtered list. Upsert behavior verified."
+        -comment: "ALL TESTS PASSED earlier (hasil create/list, juara upsert one per rank per lomba)."
+        -working: "NA"
+        -agent: "main"
+        -comment: "CHANGE: Juara POST now supports GROUP winners. If body.is_group true OR lomba.type==='kelompok', stores {is_group:true, madrasah_name, peserta_id:null, participant_name=madrasah_name}. Individual path unchanged (peserta_id, is_group:false). Still upserts one per rank per lomba (deleteMany by lomba_id+rank). Please retest: individual juara assign still works; group juara assign with {lomba_id,rank,madrasah_name,is_group:true} stores madrasah_name; upsert replaces same rank."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED (5 tests): POST /juara for kelompok lomba with is_group=true stores {is_group:true, madrasah_name:'MI Al-Hidayah', peserta_id:null, participant_name:'MI Al-Hidayah'}, POST /juara again with same rank different madrasah upserts correctly (only one Juara 1 per lomba), POST /juara for individu lomba with peserta_id stores {is_group:false, participant_name from peserta, madrasah_name from peserta}, GET /juara?lomba_id= filters correctly, DELETE /juara/:id works. Group winner support working correctly with proper upsert behavior."
   - task: "Templates upsert by type (certificate/idcard) + File upload (disk) + File serve"
     implemented: true
     working: true
@@ -206,16 +218,13 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 1
+  test_sequence: 2
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Auth register/login/me (role-based, token auth, super_admin auto-verified, others pending)"
     - "Lomba CRUD (super_admin only for write, public GET)"
     - "Peserta CRUD role-filtered + nomor_peserta auto + drive_path mock + status update"
-    - "Templates upsert by type (certificate/idcard) + File upload (disk) + File serve"
-    - "Users management (list/verify/delete) super_admin"
     - "Hasil upload record + Juara assign/list/delete"
   stuck_tasks: []
   test_all: false
@@ -223,6 +232,6 @@ test_plan:
 
 agent_communication:
     -agent: "main"
-    -message: "Please test all backend APIs under /api. Auth uses Bearer token from /auth/login or /auth/register (super_admin returns token immediately; other roles return {pending:true} and must be verified by super_admin before login). Suggested flow: register super_admin -> create lomba -> register admin_madrasah (pending) -> super verifies -> admin logs in -> creates peserta (check nomor_peserta auto + drive_path) -> register panitia with assigned_lomba_id -> super verifies -> panitia logs in, sees only own lomba peserta, updates status, assigns juara. Also test /upload (multipart) and GET /files/:id, and /templates upsert. Use UUIDs, no ObjectId."
+    -message: "Fixed missing /app/.env (MONGO_URL was unset causing ALL API 500s). Recreated .env (MONGO_URL local, DB_NAME=porseni_db). Super admin seeded: super@porseni.id / admin123. NEW backend changes to retest: (1) Lomba type field individu|kelompok; (2) Peserta gender L|P + computed complete flag + panitia GET filters complete:true + PUT recomputes complete; (3) Juara group support (is_group, madrasah_name). Please test these focusing on the deltas. Use super@porseni.id/admin123, create an admin_madrasah (verify it), create lomba individu & kelompok, register peserta, complete files, test panitia visibility."
     -agent: "testing"
-    -message: "✅ BACKEND TESTING COMPLETE - ALL 30 TESTS PASSED! Comprehensive testing executed covering: (1) Auth: register/login/me with all role scenarios, auto-verification for super_admin, pending status for others, 403 for pending login, 401 for wrong password, 400 for duplicate email. (2) Lomba: CRUD with super_admin authorization, public GET access, judging_criteria array. (3) Users: list/verify/delete (super_admin only). (4) Peserta: CRUD with role-based filtering (admin_madrasah sees only created_by, panitia sees only assigned_lomba_id, super_admin sees all), nomor_peserta auto-generation (001, 002...), drive_path format '[Lomba]/[Madrasah]/[Peserta]', status update. (5) Hasil: create and list with lomba_id filter. (6) Juara: create with upsert behavior (one per rank per lomba), list, delete. (7) File: upload multipart and serve bytes. (8) Templates: upsert by type. (9) Security: No MongoDB ObjectId (_id), password, or token leaks in responses. All endpoints working correctly with proper authorization and data validation."
+    -message: "✅ BACKEND TESTING COMPLETE - ALL 22 TESTS PASSED. Tested all recent changes: (1) Lomba type field (individu/kelompok with defaults) working correctly, (2) Peserta gender (L/P) and complete flag computed correctly, panitia visibility filter working (only sees complete peserta of assigned lomba), (3) Juara group support working (is_group, madrasah_name for kelompok lomba, upsert behavior correct). No sensitive data leaks (_id/password/token). All backend APIs functioning as expected. Ready for main agent to summarize and finish."

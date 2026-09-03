@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
-import { RANKS } from '@/lib/porseni/constants'
+import { RANKS, GENDERS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
 
 export default function Panitia({ view, user }) {
@@ -104,14 +104,18 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
 
 function Cetak({ lomba, peserta, criteria }) {
   const [mode, setMode] = useState('absensi')
+  const [gender, setGender] = useState('all')
   const doPrint = (m) => { setMode(m); setTimeout(() => window.print(), 150) }
   const crit = criteria.length ? criteria : ['Kriteria 1', 'Kriteria 2']
+
+  const rows = peserta.filter((p) => gender === 'all' ? true : p.gender === gender)
+  const genderLabel = gender === 'L' ? ' (Putra)' : gender === 'P' ? ' (Putri)' : ''
 
   const Header = (
     <div style={{ textAlign: 'center', borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
       <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
       <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
-      <div style={{ fontSize: 14, marginTop: 4 }}>{mode === 'absensi' ? 'DAFTAR HADIR PESERTA' : 'LEMBAR PENILAIAN'} — {lomba?.name || '-'}</div>
+      <div style={{ fontSize: 14, marginTop: 4 }}>{mode === 'absensi' ? 'DAFTAR HADIR PESERTA' : 'LEMBAR PENILAIAN'} — {lomba?.name || '-'}{genderLabel}</div>
     </div>
   )
   const Sign = (label) => (
@@ -129,22 +133,22 @@ function Cetak({ lomba, peserta, criteria }) {
       {Header}
       {mode === 'absensi' ? (
         <table className="print-table">
-          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>Madrasah</th><th style={{ width: '25%' }}>Tanda Tangan</th></tr></thead>
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>L/P</th><th>Madrasah</th><th style={{ width: '25%' }}>Tanda Tangan</th></tr></thead>
           <tbody>
-            {peserta.map((p, i) => (
-              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td>{p.madrasah_name}</td><td style={{ height: 34 }}>{(i % 2 === 0) ? '' : ''}</td></tr>
+            {rows.map((p, i) => (
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td><td style={{ height: 34 }}></td></tr>
             ))}
-            {peserta.length === 0 && <tr><td colSpan={5} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
           </tbody>
         </table>
       ) : (
         <table className="print-table">
-          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th>{crit.map((c, i) => <th key={i}>{c}</th>)}<th>Total</th></tr></thead>
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>L/P</th>{crit.map((c, i) => <th key={i}>{c}</th>)}<th>Total</th></tr></thead>
           <tbody>
-            {peserta.map((p, i) => (
-              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td>{crit.map((_, j) => <td key={j} style={{ height: 34 }}></td>)}<td></td></tr>
+            {rows.map((p, i) => (
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td>{crit.map((_, j) => <td key={j} style={{ height: 34 }}></td>)}<td></td></tr>
             ))}
-            {peserta.length === 0 && <tr><td colSpan={crit.length + 4} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={crit.length + 5} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
           </tbody>
         </table>
       )}
@@ -159,6 +163,19 @@ function Cetak({ lomba, peserta, criteria }) {
           <Button variant={mode === 'absensi' ? 'default' : 'outline'} onClick={() => setMode('absensi')}><Printer className="h-4 w-4 mr-1" />Absensi</Button>
           <Button variant={mode === 'penilaian' ? 'default' : 'outline'} onClick={() => setMode('penilaian')}><Printer className="h-4 w-4 mr-1" />Penilaian</Button>
         </PageHeader>
+        <div className="flex flex-wrap items-center gap-3 mb-4">
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-muted-foreground">Jenis Kelamin:</span>
+            <Select value={gender} onValueChange={setGender}>
+              <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua</SelectItem>
+                {GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          <span className="text-xs text-muted-foreground">{rows.length} peserta</span>
+        </div>
         <div className="flex gap-2 mb-4">
           <Button onClick={() => doPrint('absensi')}><Printer className="h-4 w-4 mr-2" />Cetak Absensi</Button>
           <Button onClick={() => doPrint('penilaian')}><Printer className="h-4 w-4 mr-2" />Cetak Lembar Penilaian</Button>
@@ -189,8 +206,11 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
     } catch (err) { toast.error(err.message) } finally { setUploading(false) }
   }
 
-  const assign = async (rank, peserta_id) => {
-    try { await api('/juara', { method: 'POST', body: { lomba_id: lomba.id, rank, peserta_id } }); toast.success(`${rank} ditetapkan`); onChange() }
+  const assign = async (rank, value) => {
+    try {
+      const body = isGroup ? { lomba_id: lomba.id, rank, madrasah_name: value, is_group: true } : { lomba_id: lomba.id, rank, peserta_id: value }
+      await api('/juara', { method: 'POST', body }); toast.success(`${rank} ditetapkan`); onChange()
+    }
     catch (e) { toast.error(e.message) }
   }
   const removeJuara = async (id) => {
@@ -198,6 +218,9 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
   }
 
   if (!lomba) return <Empty text="Belum ada lomba yang ditugaskan." />
+
+  const isGroup = lomba.type === 'kelompok'
+  const madrasahOptions = Array.from(new Set(verified.map((p) => p.madrasah_name).filter(Boolean)))
 
   return (
     <div>
@@ -221,21 +244,31 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
         </Card>
 
         <Card className="p-6">
-          <h3 className="font-semibold mb-1 flex items-center gap-2"><Award className="h-4 w-4 text-primary" />Penetapan Juara</h3>
-          <p className="text-sm text-muted-foreground mb-4">Pilih peserta untuk setiap peringkat.</p>
+          <h3 className="font-semibold mb-1 flex items-center gap-2"><Award className="h-4 w-4 text-primary" />Penetapan Juara {isGroup && <span className="text-xs font-normal text-muted-foreground">(Kelompok — per Madrasah)</span>}</h3>
+          <p className="text-sm text-muted-foreground mb-4">{isGroup ? 'Pilih Madrasah pemenang untuk setiap peringkat. Sertifikat dapat dicetak untuk seluruh anggota regu.' : 'Pilih peserta untuk setiap peringkat.'}</p>
           <div className="space-y-3">
             {RANKS.map((rank) => {
               const current = juara.find((j) => j.rank === rank)
               return (
                 <div key={rank} className="flex items-center gap-2">
                   <div className="w-24 text-sm font-medium">{rank}</div>
-                  <Select value={current?.peserta_id || ''} onValueChange={(v) => assign(rank, v)}>
-                    <SelectTrigger className="flex-1"><SelectValue placeholder="Pilih peserta" /></SelectTrigger>
-                    <SelectContent>
-                      {verified.map((p) => <SelectItem key={p.id} value={p.id}>{p.nomor_peserta} - {p.participant_name}</SelectItem>)}
-                      {verified.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta terverifikasi</div>}
-                    </SelectContent>
-                  </Select>
+                  {isGroup ? (
+                    <Select value={current?.madrasah_name || ''} onValueChange={(v) => assign(rank, v)}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Pilih madrasah" /></SelectTrigger>
+                      <SelectContent>
+                        {madrasahOptions.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
+                        {madrasahOptions.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta terverifikasi</div>}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <Select value={current?.peserta_id || ''} onValueChange={(v) => assign(rank, v)}>
+                      <SelectTrigger className="flex-1"><SelectValue placeholder="Pilih peserta" /></SelectTrigger>
+                      <SelectContent>
+                        {verified.map((p) => <SelectItem key={p.id} value={p.id}>{p.nomor_peserta} - {p.participant_name}</SelectItem>)}
+                        {verified.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta terverifikasi</div>}
+                      </SelectContent>
+                    </Select>
+                  )}
                   {current && <Button size="icon" variant="ghost" className="text-destructive" onClick={() => removeJuara(current.id)}><Trash2 className="h-4 w-4" /></Button>}
                 </div>
               )

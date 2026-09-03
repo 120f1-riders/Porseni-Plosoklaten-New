@@ -2,21 +2,19 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Users, CheckCircle2, Clock, UserPlus, Loader2, Upload, FileText, Trash2, FolderTree } from 'lucide-react'
+import { Users, CheckCircle2, Clock, UserPlus, Loader2, Upload, FileText, Trash2, FolderTree, FileSpreadsheet, Download, FileCheck2, FileWarning } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Badge } from '@/components/ui/badge'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
 import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
-
-const REQ_FILES = [
-  { key: 'akte', label: 'Akte Kelahiran' },
-  { key: 'surat_ket', label: 'Surat Keterangan Kepala Madrasah' },
-  { key: 'pas_photo', label: 'Pas Photo 3x4 (maks 10MB)' },
-]
+import { GENDERS, GENDER_LABEL, REQ_FILES } from '@/lib/porseni/constants'
+import { downloadPesertaTemplate, parsePesertaWorkbook } from '@/lib/porseni/excel'
 
 export default function AdminMadrasah({ view, user }) {
   const [lomba, setLomba] = useState([])
@@ -34,20 +32,21 @@ export default function AdminMadrasah({ view, user }) {
 
   if (view === 'dashboard') return <Dashboard user={user} peserta={peserta} loading={loading} />
   if (view === 'pendaftaran') return <Pendaftaran user={user} lomba={lomba} onDone={load} />
-  return <DaftarPeserta peserta={peserta} loading={loading} onChange={load} />
+  return <DaftarPeserta peserta={peserta} lomba={lomba} loading={loading} onChange={load} />
 }
 
 function Dashboard({ user, peserta, loading }) {
   const verified = peserta.filter((p) => p.status === 'verified').length
-  const pending = peserta.filter((p) => p.status === 'pending').length
+  const complete = peserta.filter((p) => p.complete).length
   return (
     <div>
       <PageHeader title={`Selamat datang, ${user.name}`} desc={user.madrasah_name} />
       {loading ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : (
-        <div className="grid gap-4 sm:grid-cols-3">
-          <StatCard icon={Users} label="Total Peserta Terdaftar" value={peserta.length} />
+        <div className="grid gap-4 sm:grid-cols-4">
+          <StatCard icon={Users} label="Total Peserta" value={peserta.length} />
+          <StatCard icon={FileCheck2} label="Berkas Lengkap" value={complete} />
           <StatCard icon={CheckCircle2} label="Terverifikasi" value={verified} />
-          <StatCard icon={Clock} label="Menunggu Verifikasi" value={pending} />
+          <StatCard icon={Clock} label="Belum Lengkap" value={peserta.length - complete} />
         </div>
       )}
       <Card className="p-6 mt-6 bg-primary/5 border-primary/20">
@@ -55,7 +54,7 @@ function Dashboard({ user, peserta, loading }) {
           <UserPlus className="h-5 w-5 text-primary mt-0.5" />
           <div>
             <div className="font-semibold">Daftarkan peserta lomba</div>
-            <p className="text-sm text-muted-foreground mt-1">Gunakan menu <b>Pendaftaran Peserta</b> untuk menambahkan siswa beserta berkas persyaratan (Akte, Surat Keterangan, Pas Photo).</p>
+            <p className="text-sm text-muted-foreground mt-1">Gunakan menu <b>Pendaftaran Peserta</b> untuk menambahkan siswa (satuan atau import Excel). Peserta baru diteruskan ke Panitia setelah data lengkap dan seluruh berkas persyaratan (Akte, Surat Keterangan, Pas Photo) terunggah.</p>
           </div>
         </div>
       </Card>
@@ -96,23 +95,24 @@ function FileUploadRow({ item, value, onUploaded }) {
 }
 
 function Pendaftaran({ user, lomba, onDone }) {
-  const [form, setForm] = useState({ participant_name: '', ttl: '', nisn: '', lomba_id: '' })
+  const [form, setForm] = useState({ participant_name: '', gender: '', ttl: '', nisn: '', lomba_id: '' })
   const [files, setFiles] = useState({})
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
 
   const submit = async () => {
     if (!form.participant_name || !form.lomba_id) return toast.error('Nama & Cabang Lomba wajib diisi')
+    if (!form.gender) return toast.error('Jenis kelamin wajib dipilih')
     setSaving(true)
     try {
       const filesPayload = {}
       Object.entries(files).forEach(([k, v]) => { filesPayload[k] = { id: v.id, name: v.name } })
       const res = await api('/peserta', { method: 'POST', body: { ...form, madrasah_name: user.madrasah_name, files: filesPayload } })
       toast.success('Peserta berhasil didaftarkan', {
-        description: `Nomor Peserta: ${res.nomor_peserta}. Berkas dikirim ke Google Drive: ${res.drive_path}`,
+        description: `Nomor Peserta: ${res.nomor_peserta}. ${res.complete ? 'Berkas lengkap, diteruskan ke Panitia.' : 'Lengkapi berkas persyaratan di menu Daftar Peserta agar diteruskan ke Panitia.'}`,
         duration: 7000,
       })
-      setForm({ participant_name: '', ttl: '', nisn: '', lomba_id: '' })
+      setForm({ participant_name: '', gender: '', ttl: '', nisn: '', lomba_id: '' })
       setFiles({})
       onDone()
     } catch (e) { toast.error(e.message) } finally { setSaving(false) }
@@ -121,13 +121,25 @@ function Pendaftaran({ user, lomba, onDone }) {
   return (
     <div>
       <PageHeader title="Pendaftaran Peserta" desc={`Madrasah: ${user.madrasah_name || '-'}`} />
+
+      <BulkImport user={user} lomba={lomba} onDone={onDone} />
+
       <div className="grid lg:grid-cols-2 gap-6">
         <Card className="p-6">
-          <h3 className="font-semibold mb-4">Data Peserta</h3>
+          <h3 className="font-semibold mb-4">Data Peserta (Satuan)</h3>
           <div className="space-y-4">
             <div className="space-y-1.5">
               <Label>Nama Lengkap</Label>
               <Input value={form.participant_name} onChange={(e) => set('participant_name', e.target.value)} placeholder="Nama peserta" />
+            </div>
+            <div className="space-y-1.5">
+              <Label>Jenis Kelamin</Label>
+              <Select value={form.gender} onValueChange={(v) => set('gender', v)}>
+                <SelectTrigger><SelectValue placeholder="Pilih jenis kelamin" /></SelectTrigger>
+                <SelectContent>
+                  {GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                </SelectContent>
+              </Select>
             </div>
             <div className="space-y-1.5">
               <Label>NISN</Label>
@@ -172,7 +184,103 @@ function Pendaftaran({ user, lomba, onDone }) {
   )
 }
 
-function DaftarPeserta({ peserta, loading, onChange }) {
+function BulkImport({ user, lomba, onDone }) {
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+
+  const doUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      const rows = await parsePesertaWorkbook(file)
+      if (!rows.length) { toast.error('Tidak ada data peserta pada file.'); return }
+      const byName = {}
+      lomba.forEach((l) => { byName[l.name.trim().toLowerCase()] = l.id })
+      let ok = 0
+      const errs = []
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i]
+        const lombaId = byName[(r.lomba_name || '').trim().toLowerCase()]
+        if (!lombaId) { errs.push(`Baris ${i + 2}: cabang lomba "${r.lomba_name}" tidak ditemukan`); continue }
+        if (!r.gender) { errs.push(`Baris ${i + 2}: jenis kelamin (L/P) kosong untuk ${r.participant_name}`); continue }
+        try {
+          await api('/peserta', { method: 'POST', body: { participant_name: r.participant_name, gender: r.gender, nisn: r.nisn, ttl: r.ttl, lomba_id: lombaId, madrasah_name: user.madrasah_name, files: {} } })
+          ok++
+        } catch (err) { errs.push(`Baris ${i + 2}: ${err.message}`) }
+      }
+      if (ok) toast.success(`${ok} peserta berhasil diimport. Lengkapi berkas persyaratan di menu Daftar Peserta.`, { duration: 7000 })
+      if (errs.length) toast.error(`${errs.length} baris gagal:\n` + errs.slice(0, 5).join('\n'), { duration: 9000 })
+      onDone()
+    } catch (err) { toast.error('Gagal membaca file: ' + err.message) } finally { setBusy(false) }
+  }
+
+  return (
+    <Card className="p-6 mb-6 bg-emerald-50/60 border-emerald-200">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <FileSpreadsheet className="h-6 w-6 text-emerald-700 mt-0.5" />
+          <div>
+            <div className="font-semibold">Pendaftaran Massal via Excel</div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">Unduh template Excel, isi data peserta (kolom Jenis Kelamin diisi L / P), lalu unggah kembali. Setelah import, lengkapi berkas persyaratan tiap peserta di menu <b>Daftar Peserta Saya</b>.</p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={() => downloadPesertaTemplate(lomba)}>
+            <Download className="h-4 w-4 mr-1" />Template
+          </Button>
+          <input ref={ref} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={doUpload} />
+          <Button disabled={busy} onClick={() => ref.current?.click()}>
+            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}Upload Excel
+          </Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
+function PersyaratanDialog({ peserta, open, onOpenChange, onSaved }) {
+  const [files, setFiles] = useState({})
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (open && peserta) setFiles(peserta.files || {})
+  }, [open, peserta])
+
+  const save = async () => {
+    setSaving(true)
+    try {
+      const payload = {}
+      Object.entries(files).forEach(([k, v]) => { if (v && v.id) payload[k] = { id: v.id, name: v.name } })
+      const res = await api(`/peserta/${peserta.id}`, { method: 'PUT', body: { files: payload } })
+      toast.success(res.complete ? 'Berkas lengkap. Peserta diteruskan ke Panitia.' : 'Berkas tersimpan. Masih ada yang belum diunggah.')
+      onOpenChange(false); onSaved()
+    } catch (e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
+  if (!peserta) return null
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Upload Persyaratan — {peserta.participant_name}</DialogTitle></DialogHeader>
+        <p className="text-xs text-muted-foreground -mt-2">Lengkapi seluruh berkas agar peserta diteruskan ke Panitia.</p>
+        <div className="space-y-3 mt-2">
+          {REQ_FILES.map((item) => (
+            <FileUploadRow key={item.key} item={item} value={files[item.key]} onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
+          ))}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Tutup</Button>
+          <Button onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Simpan Berkas</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function DaftarPeserta({ peserta, lomba, loading, onChange }) {
+  const [dlg, setDlg] = useState({ open: false, peserta: null })
   const del = async (id) => {
     if (!confirm('Hapus peserta ini?')) return
     try { await api(`/peserta/${id}`, { method: 'DELETE' }); toast.success('Peserta dihapus'); onChange() }
@@ -180,7 +288,7 @@ function DaftarPeserta({ peserta, loading, onChange }) {
   }
   return (
     <div>
-      <PageHeader title="Daftar Peserta Saya" desc="Peserta yang telah Anda daftarkan beserta status verifikasi" />
+      <PageHeader title="Daftar Peserta Saya" desc="Lengkapi berkas persyaratan agar peserta diteruskan ke Panitia" />
       <Card>
         {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : peserta.length === 0 ? <Empty text="Belum ada peserta terdaftar." /> : (
           <Table>
@@ -188,11 +296,12 @@ function DaftarPeserta({ peserta, loading, onChange }) {
               <TableRow>
                 <TableHead>No. Peserta</TableHead>
                 <TableHead>Nama</TableHead>
+                <TableHead>L/P</TableHead>
                 <TableHead>Cabang Lomba</TableHead>
-                <TableHead>NISN</TableHead>
                 <TableHead>Berkas</TableHead>
+                <TableHead>Kelengkapan</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead></TableHead>
+                <TableHead className="text-right">Aksi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -200,19 +309,25 @@ function DaftarPeserta({ peserta, loading, onChange }) {
                 <TableRow key={p.id}>
                   <TableCell className="font-mono">{p.nomor_peserta}</TableCell>
                   <TableCell className="font-medium">{p.participant_name}</TableCell>
+                  <TableCell>{GENDER_LABEL[p.gender] ? (p.gender === 'L' ? 'L' : 'P') : '-'}</TableCell>
                   <TableCell>{p.lomba_name}</TableCell>
-                  <TableCell>{p.nisn || '-'}</TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {Object.entries(p.files || {}).map(([k, v]) => (
                         <a key={k} href={fileUrl(v.id)} target="_blank" rel="noreferrer" className="text-xs text-primary underline">{k}</a>
                       ))}
                       {(!p.files || Object.keys(p.files).length === 0) && <span className="text-xs text-muted-foreground">-</span>}
                     </div>
                   </TableCell>
-                  <TableCell><StatusBadge status={p.status} /></TableCell>
                   <TableCell>
-                    <Button size="icon" variant="ghost" className="text-destructive" onClick={() => del(p.id)}><Trash2 className="h-4 w-4" /></Button>
+                    {p.complete
+                      ? <Badge className="bg-emerald-600 text-white"><FileCheck2 className="h-3 w-3 mr-1" />Lengkap</Badge>
+                      : <Badge variant="outline" className="text-amber-700 border-amber-300"><FileWarning className="h-3 w-3 mr-1" />Belum</Badge>}
+                  </TableCell>
+                  <TableCell><StatusBadge status={p.status} /></TableCell>
+                  <TableCell className="text-right whitespace-nowrap">
+                    <Button size="sm" variant="outline" onClick={() => setDlg({ open: true, peserta: p })}><Upload className="h-4 w-4 mr-1" />Persyaratan</Button>
+                    <Button size="icon" variant="ghost" className="text-destructive ml-1" onClick={() => del(p.id)}><Trash2 className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
               ))}
@@ -220,6 +335,7 @@ function DaftarPeserta({ peserta, loading, onChange }) {
           </Table>
         )}
       </Card>
+      <PersyaratanDialog peserta={dlg.peserta} open={dlg.open} onOpenChange={(v) => setDlg((d) => ({ ...d, open: v }))} onSaved={onChange} />
     </div>
   )
 }
