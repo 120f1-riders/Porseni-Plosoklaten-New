@@ -119,6 +119,21 @@ backend:
         -working: true
         -agent: "testing"
         -comment: "✅ ALL TESTS PASSED (7 tests): super_admin register returns token immediately, admin_madrasah/panitia return {pending:true}, duplicate email rejected with 400, pending account login blocked with 403, wrong password rejected with 401, verified accounts login successfully, /auth/me returns user with Bearer token. No _id/password/token leaks."
+  - task: "Password visibility + reset (super_admin) + forgot-password request"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "NEW: (1) register now stores password_plain alongside sha256 hash. (2) GET /users (super_admin) uses cleanUserAdmin => returns password_plain (but NOT hash/token); clean() strips password_plain everywhere else (login/register/me must NOT leak it). (3) PUT /users/:id accepts {password} => sets hash + password_plain + reset_requested:false. (4) POST /auth/forgot {email} (PUBLIC) sets reset_requested:true on matching user, returns generic ok message (no leak if email missing). Please test: register user then GET /users shows password_plain; login/register/me responses do NOT include password_plain or password; PUT password updates and login works with new password; forgot sets reset_requested and clears after reset."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 15 TESTS PASSED (4 scenarios): (1) password_plain visibility & no-leak (5/5): Register admin_madrasah returns {pending:true} with NO password/password_plain leak; GET /users shows password_plain='secret123' visible to super_admin but NOT password hash or token; Login response does NOT contain password_plain/password/token in user object; /auth/me does NOT contain password_plain/password/token. (2) Password reset by super_admin (4/4): Super admin resets password via PUT /users/:id with no hash/token leak; Old password login fails (401); New password login succeeds; GET /users shows updated password_plain='newpass99'. (3) Forgot password request (4/4): POST /auth/forgot sets reset_requested=true for existing user; Returns generic ok:true for non-existent email (no leak); GET /users shows reset_requested=true; Password reset clears reset_requested to false. (4) Regression sanity (2/2): GET /lomba public endpoint works; Super admin login works. All password features working correctly with proper visibility controls and no sensitive data leaks."
+
   - task: "Lomba CRUD (super_admin only for write, public GET)"
     implemented: true
     working: true
@@ -249,14 +264,12 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 3
+  test_sequence: 4
   run_ui: false
 
 test_plan:
   current_focus:
-    - "Lomba CRUD (super_admin only for write, public GET)"
-    - "Peserta CRUD role-filtered + nomor_peserta auto + drive_path mock + status update"
-    - "Hasil upload record + Juara assign/list/delete"
+    - "Password visibility + reset (super_admin) + forgot-password request"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -264,8 +277,10 @@ test_plan:
 
 agent_communication:
     -agent: "main"
-    -message: "Fixed missing /app/.env (MONGO_URL was unset causing ALL API 500s). Recreated .env (MONGO_URL local, DB_NAME=porseni_db). Super admin seeded: super@porseni.id / admin123. NEW backend changes to retest: (1) Lomba type field individu|kelompok; (2) Peserta gender L|P + computed complete flag + panitia GET filters complete:true + PUT recomputes complete; (3) Juara group support (is_group, madrasah_name). Please test these focusing on the deltas. Use super@porseni.id/admin123, create an admin_madrasah (verify it), create lomba individu & kelompok, register peserta, complete files, test panitia visibility."
+    -message: "NEW backend delta to test: password features. (1) register stores password_plain; (2) GET /users returns password_plain for super_admin only (verify NO password_plain/hash/token leak in /auth/login, /auth/register, /auth/me); (3) PUT /users/:id {password} resets password (login with new password must work) and clears reset_requested; (4) POST /auth/forgot {email} public sets reset_requested true (generic ok msg even for unknown email). Kop surat uses existing /templates type=kopsurat (no new endpoint). Super admin: super@porseni.id / admin123."
     -agent: "testing"
     -message: "✅ BACKEND TESTING COMPLETE - ALL 22 TESTS PASSED. Tested all recent changes: (1) Lomba type field (individu/kelompok with defaults) working correctly, (2) Peserta gender (L/P) and complete flag computed correctly, panitia visibility filter working (only sees complete peserta of assigned lomba), (3) Juara group support working (is_group, madrasah_name for kelompok lomba, upsert behavior correct). No sensitive data leaks (_id/password/token). All backend APIs functioning as expected. Ready for main agent to summarize and finish."
     -agent: "testing"
     -message: "✅ FRONTEND TESTING COMPLETE - ALL FLOWS PASSED. Comprehensive UI testing completed covering all 3 roles (Super Admin, Admin Madrasah, Panitia). Key findings: (1) CRITICAL: Manajemen Sertifikat page loads WITHOUT JS errors (previously errored, now fixed), (2) All Super Admin features working: lomba type field (Individu/Kelompok), dashboard gender breakdown (L/P stats + rekap table), Data Pendaftar with filters and Cetak Semua button, (3) Admin Madrasah: Excel bulk import card present, satuan form has gender select and berkas persyaratan section, participants registered successfully, L/P column and Kelengkapan badges working, Persyaratan dialog shows all 3 upload rows, (4) Panitia: Cetak Administrasi has gender filter (Semua/L/P) and print buttons, Upload Hasil & Juara shows peserta dropdown for individu lomba and madrasah dropdown for kelompok lomba. NO JS ERRORS DETECTED. All UI elements and integrations working correctly. NOTE: File upload automation is limited - cannot test actual file upload, but UI elements are correct. Ready for main agent to summarize and finish."
+    -agent: "testing"
+    -message: "✅ PASSWORD FEATURES TESTING COMPLETE - ALL 15 TESTS PASSED (4 scenarios). Comprehensive testing of new password features: (1) password_plain visibility & no-leak (5/5 tests): Register returns {pending:true} with NO password leak; GET /users shows password_plain visible to super_admin only; Login/register/me responses do NOT leak password_plain/password/token. (2) Password reset by super_admin (4/4 tests): Reset via PUT /users/:id works; Old password fails, new password succeeds; password_plain updated in GET /users. (3) Forgot password request (4/4 tests): POST /auth/forgot sets reset_requested=true; Generic response for non-existent emails (no leak); Reset clears reset_requested. (4) Regression sanity (2/2 tests): GET /lomba public and super_admin login still working. All password features implemented correctly with proper security controls. NO SENSITIVE DATA LEAKS DETECTED."

@@ -5,6 +5,7 @@ import { toast } from 'sonner'
 import {
   Trophy, Users, GraduationCap, Loader2, Plus, Pencil, Trash2, CheckCircle, ShieldCheck,
   Upload, Award, Download, IdCard, Image as ImageIcon, Printer, UsersRound, User,
+  Eye, EyeOff, KeyRound, Copy, FileText, BellRing,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -188,28 +189,57 @@ function ManajemenPengguna() {
   const [users, setUsers] = useState([])
   const [lomba, setLomba] = useState([])
   const [loading, setLoading] = useState(true)
+  const [show, setShow] = useState({})
+  const [resetDlg, setResetDlg] = useState({ open: false, user: null })
   const load = async () => { setLoading(true); try { const [u, l] = await Promise.all([api('/users'), api('/lomba')]); setUsers(u); setLomba(l) } catch (e) { toast.error(e.message) } finally { setLoading(false) } }
   useEffect(() => { load() }, [])
   const lombaName = (id) => lomba.find((l) => l.id === id)?.name || '-'
   const verify = async (id, status) => { try { await api(`/users/${id}`, { method: 'PUT', body: { status } }); toast.success('Status diperbarui'); load() } catch (e) { toast.error(e.message) } }
   const del = async (id) => { if (!confirm('Hapus pengguna?')) return; try { await api(`/users/${id}`, { method: 'DELETE' }); toast.success('Dihapus'); load() } catch (e) { toast.error(e.message) } }
+  const copy = (txt) => { navigator.clipboard?.writeText(txt); toast.success('Sandi disalin') }
+  const resetCount = users.filter((u) => u.reset_requested).length
 
   return (
     <div>
-      <PageHeader title="Manajemen Pengguna" desc="Verifikasi akun Admin Madrasah & Panitia Lomba" />
+      <PageHeader title="Manajemen Pengguna" desc="Verifikasi akun, lihat & atur ulang kata sandi" />
+
+      <KopSuratCard />
+
+      {resetCount > 0 && (
+        <Card className="p-4 mb-4 bg-amber-50 border-amber-300 flex items-center gap-2">
+          <BellRing className="h-5 w-5 text-amber-600" />
+          <span className="text-sm text-amber-800">{resetCount} pengguna meminta reset kata sandi. Gunakan tombol <b>Reset Sandi</b> pada baris bertanda.</span>
+        </Card>
+      )}
+
       <Card>
         {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : (
           <Table>
-            <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>Email</TableHead><TableHead>Peran</TableHead><TableHead>Keterangan</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>Email</TableHead><TableHead>Peran</TableHead><TableHead>Keterangan</TableHead><TableHead>Kata Sandi</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
             <TableBody>
               {users.map((u) => (
-                <TableRow key={u.id}>
-                  <TableCell className="font-medium">{u.name}</TableCell>
+                <TableRow key={u.id} className={u.reset_requested ? 'bg-amber-50/60' : ''}>
+                  <TableCell className="font-medium">
+                    {u.name}
+                    {u.reset_requested && <Badge className="ml-2 bg-amber-500 text-white text-[10px]">Minta Reset</Badge>}
+                  </TableCell>
                   <TableCell className="text-sm">{u.email}</TableCell>
                   <TableCell><Badge variant="outline">{ROLE_LABEL[u.role]}</Badge></TableCell>
                   <TableCell className="text-sm text-muted-foreground">{u.role === 'admin_madrasah' ? u.madrasah_name : u.role === 'panitia' ? lombaName(u.assigned_lomba_id) : '-'}</TableCell>
+                  <TableCell>
+                    {u.password_plain ? (
+                      <div className="flex items-center gap-1">
+                        <span className="font-mono text-sm">{show[u.id] ? u.password_plain : '••••••••'}</span>
+                        <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setShow((s) => ({ ...s, [u.id]: !s[u.id] }))}>
+                          {show[u.id] ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                        </Button>
+                        {show[u.id] && <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => copy(u.password_plain)}><Copy className="h-3.5 w-3.5" /></Button>}
+                      </div>
+                    ) : <span className="text-xs text-muted-foreground italic">tidak tersedia (reset untuk atur)</span>}
+                  </TableCell>
                   <TableCell><StatusBadge status={u.status} /></TableCell>
                   <TableCell className="text-right whitespace-nowrap">
+                    <Button size="sm" variant={u.reset_requested ? 'default' : 'outline'} className="mr-1" onClick={() => setResetDlg({ open: true, user: u })}><KeyRound className="h-4 w-4 mr-1" />Reset Sandi</Button>
                     {u.status !== 'verified'
                       ? <Button size="sm" onClick={() => verify(u.id, 'verified')}><CheckCircle className="h-4 w-4 mr-1" />Verifikasi</Button>
                       : u.role !== 'super_admin' && <Button size="sm" variant="outline" onClick={() => verify(u.id, 'pending')}>Nonaktifkan</Button>}
@@ -221,7 +251,90 @@ function ManajemenPengguna() {
           </Table>
         )}
       </Card>
+
+      <ResetPasswordDialog state={resetDlg} onClose={() => setResetDlg({ open: false, user: null })} onSaved={load} />
     </div>
+  )
+}
+
+function ResetPasswordDialog({ state, onClose, onSaved }) {
+  const [pw, setPw] = useState('')
+  const [saving, setSaving] = useState(false)
+  useEffect(() => { if (state.open) setPw('') }, [state.open])
+  const save = async () => {
+    if (!pw || pw.length < 4) return toast.error('Sandi minimal 4 karakter')
+    setSaving(true)
+    try {
+      await api(`/users/${state.user.id}`, { method: 'PUT', body: { password: pw } })
+      toast.success('Kata sandi berhasil diatur ulang')
+      onClose(); onSaved()
+    } catch (e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+  if (!state.user) return null
+  return (
+    <Dialog open={state.open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Reset Kata Sandi — {state.user.name}</DialogTitle></DialogHeader>
+        <p className="text-sm text-muted-foreground -mt-2">Tetapkan sandi baru untuk <b>{state.user.email}</b>. Sandi ini akan tampil di tabel dan dapat diberitahukan ke pengguna.</p>
+        <div className="space-y-1.5 mt-2">
+          <Label>Sandi Baru</Label>
+          <Input value={pw} onChange={(e) => setPw(e.target.value)} placeholder="Masukkan sandi baru" />
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Simpan Sandi</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
+function KopSuratCard() {
+  const [url, setUrl] = useState(null)
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+  useEffect(() => {
+    api('/templates?type=kopsurat').then((list) => { if (list && list[0]) setUrl(list[0].image_url) }).catch(() => {})
+  }, [])
+  const handle = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) return toast.error('Ukuran maksimal 10MB')
+    setBusy(true)
+    try {
+      const up = await uploadFile(file)
+      const imgUrl = fileUrl(up.id)
+      await api('/templates', { method: 'POST', body: { type: 'kopsurat', image_url: imgUrl, fields: [] } })
+      setUrl(imgUrl)
+      toast.success('Kop surat tersimpan. Akan tampil di cetak Absensi & Rekap Nilai.')
+    } catch (err) { toast.error(err.message) } finally { setBusy(false) }
+  }
+  const remove = async () => {
+    setBusy(true)
+    try { await api('/templates', { method: 'POST', body: { type: 'kopsurat', image_url: '', fields: [] } }); setUrl(null); toast.success('Kop surat dihapus') }
+    catch (err) { toast.error(err.message) } finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-5 mb-4">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <FileText className="h-5 w-5 text-primary mt-0.5" />
+          <div>
+            <div className="font-semibold">Kop Surat (Kepala Surat)</div>
+            <p className="text-sm text-muted-foreground max-w-xl">Unggah gambar kop surat (disarankan format lebar/landscape, PNG/JPG). Kop ini otomatis tampil di bagian atas cetak <b>Absensi</b> dan <b>Rekap/Lembar Penilaian</b> Panitia serta cetak Data Pendaftar.</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 shrink-0">
+          {url ? <img src={url} alt="Kop Surat" className="h-14 border rounded bg-white object-contain" /> : <div className="h-14 w-40 border border-dashed rounded flex items-center justify-center text-xs text-muted-foreground">Belum ada</div>}
+          <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handle} />
+          <div className="flex flex-col gap-1">
+            <Button size="sm" disabled={busy} onClick={() => ref.current?.click()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}{url ? 'Ganti' : 'Unggah'}</Button>
+            {url && <Button size="sm" variant="ghost" className="text-destructive" disabled={busy} onClick={remove}>Hapus</Button>}
+          </div>
+        </div>
+      </div>
+    </Card>
   )
 }
 
@@ -232,12 +345,14 @@ function DataPendaftar() {
   const [loading, setLoading] = useState(true)
   const [lombaFilter, setLombaFilter] = useState('all')
   const [genderFilter, setGenderFilter] = useState('all')
+  const [kopSurat, setKopSurat] = useState(null)
 
   useEffect(() => {
     (async () => {
       try {
-        const [p, l] = await Promise.all([api('/peserta'), api('/lomba')])
+        const [p, l, tpl] = await Promise.all([api('/peserta'), api('/lomba'), api('/templates?type=kopsurat').catch(() => [])])
         setPeserta(p || []); setLomba(l || [])
+        setKopSurat(tpl && tpl[0] && tpl[0].image_url ? tpl[0].image_url : null)
       } catch (e) { toast.error(e.message) } finally { setLoading(false) }
     })()
   }, [])
@@ -250,10 +365,16 @@ function DataPendaftar() {
 
   const Sheet = (
     <div className="sheet">
-      <div style={{ textAlign: 'center', borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
-        <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
-        <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
-        <div style={{ fontSize: 14, marginTop: 4 }}>DAFTAR SELURUH PESERTA{lombaFilter !== 'all' ? ' — ' + (lomba.find((l) => l.id === lombaFilter)?.name || '') : ''}</div>
+      <div style={{ borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
+        {kopSurat
+          ? <img src={kopSurat} alt="Kop Surat" style={{ width: '100%', maxHeight: 130, objectFit: 'contain', marginBottom: 8 }} />
+          : (
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
+              <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
+            </div>
+          )}
+        <div style={{ textAlign: 'center', fontSize: 14, marginTop: 4, fontWeight: 600 }}>DAFTAR SELURUH PESERTA{lombaFilter !== 'all' ? ' — ' + (lomba.find((l) => l.id === lombaFilter)?.name || '') : ''}</div>
       </div>
       <table className="print-table">
         <thead><tr><th>No</th><th>No. Peserta</th><th>Nama</th><th>L/P</th><th>Asal Madrasah</th><th>Cabang Lomba</th><th>Status</th></tr></thead>

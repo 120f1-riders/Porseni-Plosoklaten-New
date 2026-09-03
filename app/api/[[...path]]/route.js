@@ -38,6 +38,13 @@ function hashPw(pw) {
 
 function clean(doc) {
   if (!doc) return doc
+  const { _id, password, password_plain, token, ...rest } = doc
+  return rest
+}
+
+// For super_admin user listing: keep password_plain visible, strip hash/token/_id
+function cleanUserAdmin(doc) {
+  if (!doc) return doc
   const { _id, password, token, ...rest } = doc
   return rest
 }
@@ -120,6 +127,7 @@ async function handleRoute(request, { params }) {
         name: b.name,
         email: String(b.email).toLowerCase(),
         password: hashPw(b.password),
+        password_plain: String(b.password),
         role: b.role,
         madrasah_name: b.madrasah_name || null,
         assigned_lomba_id: b.assigned_lomba_id || null,
@@ -148,6 +156,18 @@ async function handleRoute(request, { params }) {
       const u = await getUser(request)
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
       return json(clean(u))
+    }
+
+    // ---------- FORGOT PASSWORD (public) -> notify super admin ----------
+    if (route === '/auth/forgot' && method === 'POST') {
+      const b = await request.json()
+      const email = String(b.email || '').toLowerCase()
+      const target = await db.collection('users').findOne({ email })
+      if (target) {
+        await db.collection('users').updateOne({ id: target.id }, { $set: { reset_requested: true, reset_requested_at: new Date() } })
+      }
+      // generic response (avoid leaking which emails exist)
+      return json({ ok: true, message: 'Permintaan reset sandi terkirim ke Super Admin. Silakan hubungi Super Admin untuk sandi baru Anda.' })
     }
 
     // ---------- LOMBA ----------
@@ -185,7 +205,7 @@ async function handleRoute(request, { params }) {
       const u = await getUser(request)
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const list = await db.collection('users').find({}).sort({ created_at: -1 }).toArray()
-      return json(list.map(clean))
+      return json(list.map(cleanUserAdmin))
     }
     if (p[0] === 'users' && p[1] && method === 'PUT') {
       const u = await getUser(request)
@@ -193,9 +213,14 @@ async function handleRoute(request, { params }) {
       const b = await request.json()
       const set = {}
       ;['status', 'name', 'madrasah_name', 'assigned_lomba_id'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      if (b.password) {
+        set.password = hashPw(String(b.password))
+        set.password_plain = String(b.password)
+        set.reset_requested = false
+      }
       await db.collection('users').updateOne({ id: p[1] }, { $set: set })
       const doc = await db.collection('users').findOne({ id: p[1] })
-      return json(clean(doc))
+      return json(cleanUserAdmin(doc))
     }
     if (p[0] === 'users' && p[1] && method === 'DELETE') {
       const u = await getUser(request)

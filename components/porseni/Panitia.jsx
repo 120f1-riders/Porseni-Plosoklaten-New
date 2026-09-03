@@ -16,14 +16,16 @@ export default function Panitia({ view, user }) {
   const [peserta, setPeserta] = useState([])
   const [juara, setJuara] = useState([])
   const [hasil, setHasil] = useState([])
+  const [kopSurat, setKopSurat] = useState(null)
   const [loading, setLoading] = useState(true)
 
   const load = async () => {
     setLoading(true)
     try {
-      const [ls, p, j, h] = await Promise.all([api('/lomba'), api('/peserta'), api('/juara'), api('/hasil')])
+      const [ls, p, j, h, tpl] = await Promise.all([api('/lomba'), api('/peserta'), api('/juara'), api('/hasil'), api('/templates?type=kopsurat').catch(() => [])])
       setLomba(ls.find((l) => l.id === user.assigned_lomba_id) || null)
       setPeserta(p); setJuara(j); setHasil(h)
+      setKopSurat(tpl && tpl[0] && tpl[0].image_url ? tpl[0].image_url : null)
     } catch (e) { toast.error(e.message) } finally { setLoading(false) }
   }
   useEffect(() => { load() }, [])
@@ -31,7 +33,7 @@ export default function Panitia({ view, user }) {
   const criteria = useMemo(() => (lomba?.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)), [lomba])
 
   if (view === 'dashboard') return <Dashboard lomba={lomba} peserta={peserta} loading={loading} />
-  if (view === 'cetak') return <Cetak lomba={lomba} peserta={peserta} criteria={criteria} />
+  if (view === 'cetak') return <Cetak lomba={lomba} peserta={peserta} criteria={criteria} kopSurat={kopSurat} />
   if (view === 'hasil') return <Hasil lomba={lomba} peserta={peserta} juara={juara} hasil={hasil} onChange={load} />
   return <DaftarPeserta lomba={lomba} peserta={peserta} loading={loading} onChange={load} />
 }
@@ -102,7 +104,7 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
   )
 }
 
-function Cetak({ lomba, peserta, criteria }) {
+function Cetak({ lomba, peserta, criteria, kopSurat }) {
   const [mode, setMode] = useState('absensi')
   const [gender, setGender] = useState('all')
   const doPrint = (m) => { setMode(m); setTimeout(() => window.print(), 150) }
@@ -112,10 +114,16 @@ function Cetak({ lomba, peserta, criteria }) {
   const genderLabel = gender === 'L' ? ' (Putra)' : gender === 'P' ? ' (Putri)' : ''
 
   const Header = (
-    <div style={{ textAlign: 'center', borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
-      <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
-      <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
-      <div style={{ fontSize: 14, marginTop: 4 }}>{mode === 'absensi' ? 'DAFTAR HADIR PESERTA' : 'LEMBAR PENILAIAN'} — {lomba?.name || '-'}{genderLabel}</div>
+    <div style={{ borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
+      {kopSurat
+        ? <img src={kopSurat} alt="Kop Surat" style={{ width: '100%', maxHeight: 130, objectFit: 'contain', marginBottom: 8 }} />
+        : (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
+          </div>
+        )}
+      <div style={{ textAlign: 'center', fontSize: 14, marginTop: 4, fontWeight: 600 }}>{mode === 'absensi' ? 'DAFTAR HADIR PESERTA' : 'LEMBAR PENILAIAN'} — {lomba?.name || '-'}{genderLabel}</div>
     </div>
   )
   const Sign = (label) => (

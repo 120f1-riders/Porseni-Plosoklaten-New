@@ -67,6 +67,29 @@ export default function Auth({ onAuth }) {
     }
   }
 
+  const handleForgot = async () => {
+    if (!email) return toast.error('Masukkan email Anda')
+    setLoading(true)
+    try {
+      const res = await api('/auth/forgot', { method: 'POST', body: { email } })
+      toast.success(res.message || 'Permintaan reset terkirim ke Super Admin.', { duration: 8000 })
+      setMode('login')
+    } catch (e) {
+      toast.error(e.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const titles = { login: 'Masuk Akun', register: 'Daftar Akun', forgot: 'Lupa Kata Sandi' }
+  const descs = {
+    login: 'Silakan masuk untuk melanjutkan.',
+    register: 'Lengkapi data untuk membuat akun baru.',
+    forgot: 'Masukkan email akun Anda. Permintaan reset akan dikirim ke Super Admin untuk ditetapkan sandi baru.',
+  }
+  const submitFn = mode === 'login' ? handleLogin : mode === 'register' ? handleRegister : handleForgot
+  const submitLabel = mode === 'login' ? 'Masuk' : mode === 'register' ? 'Daftar' : 'Kirim Permintaan Reset'
+
   return (
     <div className="min-h-screen grid lg:grid-cols-2">
       {/* Brand panel */}
@@ -92,9 +115,9 @@ export default function Auth({ onAuth }) {
             <GraduationCap className="h-6 w-6" />
             <span className="font-bold">SIM Porseni MI Plosoklaten</span>
           </div>
-          <h2 className="text-2xl font-bold">{mode === 'login' ? 'Masuk Akun' : 'Daftar Akun'}</h2>
+          <h2 className="text-2xl font-bold">{titles[mode]}</h2>
           <p className="text-muted-foreground text-sm mt-1 mb-6">
-            {mode === 'login' ? 'Silakan masuk untuk melanjutkan.' : 'Lengkapi data untuk membuat akun baru.'}
+            {descs[mode]}
           </p>
 
           <div className="space-y-4">
@@ -108,10 +131,17 @@ export default function Auth({ onAuth }) {
               <Label>Email</Label>
               <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@contoh.id" />
             </div>
-            <div className="space-y-1.5">
-              <Label>Kata Sandi</Label>
-              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
-            </div>
+            {mode !== 'forgot' && (
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label>Kata Sandi</Label>
+                  {mode === 'login' && (
+                    <button type="button" className="text-xs text-primary hover:underline" onClick={() => setMode('forgot')}>Lupa sandi?</button>
+                  )}
+                </div>
+                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" />
+              </div>
+            )}
 
             {mode === 'register' && (
               <>
@@ -145,17 +175,23 @@ export default function Auth({ onAuth }) {
               </>
             )}
 
-            <Button className="w-full" disabled={loading} onClick={mode === 'login' ? handleLogin : handleRegister}>
+            <Button className="w-full" disabled={loading} onClick={submitFn}>
               {loading && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
-              {mode === 'login' ? 'Masuk' : 'Daftar'}
+              {submitLabel}
             </Button>
           </div>
 
           <div className="text-center text-sm text-muted-foreground mt-6">
-            {mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'}{' '}
-            <button className="text-primary font-medium hover:underline" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
-              {mode === 'login' ? 'Daftar di sini' : 'Masuk di sini'}
-            </button>
+            {mode === 'forgot' ? (
+              <button className="text-primary font-medium hover:underline" onClick={() => setMode('login')}>Kembali ke halaman Masuk</button>
+            ) : (
+              <>
+                {mode === 'login' ? 'Belum punya akun?' : 'Sudah punya akun?'}{' '}
+                <button className="text-primary font-medium hover:underline" onClick={() => setMode(mode === 'login' ? 'register' : 'login')}>
+                  {mode === 'login' ? 'Daftar di sini' : 'Masuk di sini'}
+                </button>
+              </>
+            )}
           </div>
         </Card>
       </div>
