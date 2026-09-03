@@ -10,7 +10,7 @@ import io
 from datetime import datetime
 
 # Base URL from .env
-BASE_URL = "https://madrasah-porseni.preview.emergentagent.com/api"
+BASE_URL = "https://event-management-hub-27.preview.emergentagent.com/api"
 
 # Test data storage
 test_data = {
