@@ -203,22 +203,53 @@ backend:
         -comment: "✅ ALL TESTS PASSED (4 tests): POST /upload multipart returns {id,url,name}, GET /files/:id serves file bytes correctly, POST /templates upserts by type (updates existing, creates new), GET /templates?type= filters correctly. File upload and serve working."
 
 frontend:
-  - task: "Full UI (Auth, role dashboards, registration, print, cert/idcard engine)"
+  - task: "Gender in registration + Excel template/bulk import + Persyaratan upload + completeness gating (Admin Madrasah)"
     implemented: true
-    working: "NA"
-    file: "app/page.js and components/porseni/*"
+    working: true
+    file: "components/porseni/AdminMadrasah.jsx, lib/porseni/excel.js"
     stuck_count: 0
     priority: "high"
     needs_retesting: false
     status_history:
         -working: "NA"
         -agent: "main"
-        -comment: "Not tested yet; awaiting user permission for frontend testing."
+        -comment: "Added gender select (L/P), Excel template download + bulk upload import, per-peserta Persyaratan upload dialog (Akte/Surat Ket/Pas Photo), completeness badge. Peserta only forwarded to Panitia when complete."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED: (1) Pendaftaran Peserta page shows 'Pendaftaran Massal via Excel' card with Template and Upload Excel buttons, (2) Satuan form has all required fields including Jenis Kelamin select (L/P) and Berkas Persyaratan section with 3 upload rows (Akte, Surat Keterangan, Pas Photo), (3) Successfully registered 2 participants (Ahmad Fauzi L, Siti Aminah P), (4) Daftar Peserta Saya table shows L/P column and Kelengkapan column with 'Belum' badges for incomplete files, (5) Persyaratan dialog opens with all 3 upload rows visible. NOTE: File upload automation is limited - cannot test actual file upload, but UI elements are correct."
+  - task: "Panitia cetak gender filter + Juara kelompok (per MI)"
+    implemented: true
+    working: true
+    file: "components/porseni/Panitia.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Cetak Absensi/Penilaian has gender filter (Semua/L/P) + L/P column. Penetapan Juara shows MI dropdown when lomba.type==kelompok."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED: (1) Cetak Administrasi page has 'Jenis Kelamin' filter with options Semua/Laki-laki/Perempuan, (2) Both print buttons found (Cetak Absensi, Cetak Lembar Penilaian), (3) Print preview shows L/P column in table, (4) Upload Hasil & Juara for Kaligrafi (individu) shows peserta dropdown with 'Pilih peserta' placeholder, (5) Upload Hasil & Juara for Cerdas Cermat (kelompok) shows heading '(Kelompok — per Madrasah)' and madrasah dropdown with 'Pilih madrasah' placeholder. Gender filter and kelompok mode working correctly."
+  - task: "SuperAdmin lomba type, dashboard breakdown, Data Pendaftar print-all, Sertifikat group modes + bug robustness"
+    implemented: true
+    working: true
+    file: "components/porseni/SuperAdmin.jsx, components/porseni/Shell.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Lomba form has Jenis (individu/kelompok). Dashboard shows L/P totals + per-lomba rekap. New Data Pendaftar menu (filters + Cetak Semua). Sertifikat supports group modes (Per Peserta / Per Regu) and is robust to empty data (previously appeared to error due to missing MONGO_URL env, now fixed)."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL TESTS PASSED: (1) Manajemen Lomba dialog has 'Jenis Lomba' select with Individu/Kelompok options, lomba table has 'Jenis' column showing type correctly, (2) CRITICAL: Manajemen Sertifikat page loaded WITHOUT any JS errors - shows upload template button and generate section with no crash (previously errored, now fixed), (3) Dashboard shows 'Peserta Laki-laki' and 'Peserta Perempuan' stat cards, 'Rekap Pendaftar per Cabang Lomba' table has Laki-laki/Perempuan/Total columns, (4) Data Pendaftar page has 'Cetak Semua' button and filter selects for Cabang Lomba and Jenis Kelamin. All Super Admin features working correctly. NO JS ERRORS DETECTED."
 
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 2
+  test_sequence: 3
   run_ui: false
 
 test_plan:
@@ -229,9 +260,12 @@ test_plan:
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
+  run_ui: true
 
 agent_communication:
     -agent: "main"
     -message: "Fixed missing /app/.env (MONGO_URL was unset causing ALL API 500s). Recreated .env (MONGO_URL local, DB_NAME=porseni_db). Super admin seeded: super@porseni.id / admin123. NEW backend changes to retest: (1) Lomba type field individu|kelompok; (2) Peserta gender L|P + computed complete flag + panitia GET filters complete:true + PUT recomputes complete; (3) Juara group support (is_group, madrasah_name). Please test these focusing on the deltas. Use super@porseni.id/admin123, create an admin_madrasah (verify it), create lomba individu & kelompok, register peserta, complete files, test panitia visibility."
     -agent: "testing"
     -message: "✅ BACKEND TESTING COMPLETE - ALL 22 TESTS PASSED. Tested all recent changes: (1) Lomba type field (individu/kelompok with defaults) working correctly, (2) Peserta gender (L/P) and complete flag computed correctly, panitia visibility filter working (only sees complete peserta of assigned lomba), (3) Juara group support working (is_group, madrasah_name for kelompok lomba, upsert behavior correct). No sensitive data leaks (_id/password/token). All backend APIs functioning as expected. Ready for main agent to summarize and finish."
+    -agent: "testing"
+    -message: "✅ FRONTEND TESTING COMPLETE - ALL FLOWS PASSED. Comprehensive UI testing completed covering all 3 roles (Super Admin, Admin Madrasah, Panitia). Key findings: (1) CRITICAL: Manajemen Sertifikat page loads WITHOUT JS errors (previously errored, now fixed), (2) All Super Admin features working: lomba type field (Individu/Kelompok), dashboard gender breakdown (L/P stats + rekap table), Data Pendaftar with filters and Cetak Semua button, (3) Admin Madrasah: Excel bulk import card present, satuan form has gender select and berkas persyaratan section, participants registered successfully, L/P column and Kelengkapan badges working, Persyaratan dialog shows all 3 upload rows, (4) Panitia: Cetak Administrasi has gender filter (Semua/L/P) and print buttons, Upload Hasil & Juara shows peserta dropdown for individu lomba and madrasah dropdown for kelompok lomba. NO JS ERRORS DETECTED. All UI elements and integrations working correctly. NOTE: File upload automation is limited - cannot test actual file upload, but UI elements are correct. Ready for main agent to summarize and finish."
