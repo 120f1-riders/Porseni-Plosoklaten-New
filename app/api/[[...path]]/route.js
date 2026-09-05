@@ -4,6 +4,58 @@ import { NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
+import {
+  googleConfigured,
+  uploadToDrive,
+  downloadFromDrive,
+  ensureFolderPath,
+  ensureTab,
+  ensureHeader,
+  appendRows,
+  overwriteSheet,
+  statusCheck,
+} from '@/lib/porseni/google'
+
+const SHEET_HEADER = [
+  'No Peserta', 'Nama Peserta', 'L/P', 'Cabang Lomba', 'Jenis', 'Madrasah',
+  'NISN', 'TTL', 'Tim', 'Kelengkapan', 'Link Akte', 'Link Surat Ket', 'Link Pas Photo', 'Tanggal Daftar',
+]
+
+async function fileLinkFor(db, f) {
+  if (!f || !f.id) return ''
+  const rec = await db.collection('files').findOne({ id: f.id })
+  if (rec && rec.drive_url) return rec.drive_url
+  return (process.env.NEXT_PUBLIC_BASE_URL || '') + '/api/files/' + f.id
+}
+
+async function buildSheetRow(db, doc, lomba) {
+  const files = doc.files || {}
+  return [
+    doc.nomor_peserta || '', doc.participant_name || '', doc.gender || '',
+    doc.lomba_name || (lomba ? lomba.name : ''), (lomba ? lomba.type : '') || '',
+    doc.madrasah_name || '', doc.nisn || '', doc.ttl || '', doc.team_name || '',
+    doc.complete ? 'Lengkap' : 'Belum',
+    await fileLinkFor(db, files.akte), await fileLinkFor(db, files.surat_ket), await fileLinkFor(db, files.pas_photo),
+    doc.created_at ? new Date(doc.created_at).toLocaleString('id-ID') : '',
+  ]
+}
+
+// Append one or more peserta docs to Google Sheet (non-blocking / best-effort)
+async function syncSheetAppend(db, docs) {
+  try {
+    if (!googleConfigured() || !process.env.GOOGLE_SHEETS_SPREADSHEET_ID) return
+    await ensureTab()
+    await ensureHeader(SHEET_HEADER)
+    const rows = []
+    for (const d of docs) {
+      const lomba = await db.collection('lomba').findOne({ id: d.lomba_id })
+      rows.push(await buildSheetRow(db, d, lomba))
+    }
+    if (rows.length) await appendRows(rows)
+  } catch (e) {
+    console.error('[sheet-sync] append failed:', e.message)
+  }
+}
 
 let client
 let db
@@ -84,11 +136,48 @@ async function handleRoute(request, { params }) {
       return json({ message: 'Porseni MI Plosoklaten API' })
     }
 
+    // ---------- INTEGRATIONS (Google Drive + Sheets) ----------
+    if (route === '/integrations/status' && method === 'GET') {
+      const u = await getUser(request)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
+      if (!googleConfigured()) return json({ configured: false, message: 'Kredensial Google belum diset' })
+      try {
+        const st = await statusCheck()
+        st.tab_exists = Array.isArray(st.tabs) && st.tabs.includes(st.target_tab)
+        return json(st)
+      } catch (e) {
+        return json({ configured: true, ok: false, error: e.message }, 200)
+      }
+    }
+    if (route === '/integrations/sync' && method === 'POST') {
+      const u = await getUser(request)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
+      if (!googleConfigured()) return json({ error: 'Kredensial Google belum diset' }, 400)
+      try {
+        await ensureTab()
+        const all = await db.collection('peserta').find({}).sort({ lomba_name: 1, nomor_peserta: 1 }).toArray()
+        const rows = []
+        for (const d of all) {
+          const lomba = await db.collection('lomba').findOne({ id: d.lomba_id })
+          rows.push(await buildSheetRow(db, d, lomba))
+        }
+        await overwriteSheet(SHEET_HEADER, rows)
+        return json({ ok: true, synced: rows.length })
+      } catch (e) {
+        return json({ error: e.message }, 500)
+      }
+    }
+
     // ---------- FILE SERVE ---------- GET /files/:id
     if (p[0] === 'files' && p[1] && method === 'GET') {
       const f = await db.collection('files').findOne({ id: p[1] })
       if (!f) return json({ error: 'File tidak ditemukan' }, 404)
-      const buf = await fs.readFile(path.join(UP_DIR, f.storedName))
+      let buf
+      if (f.driveId) {
+        buf = await downloadFromDrive(f.driveId)
+      } else {
+        buf = await fs.readFile(path.join(UP_DIR, f.storedName))
+      }
       return new NextResponse(buf, {
         status: 200,
         headers: {
@@ -105,14 +194,33 @@ async function handleRoute(request, { params }) {
       const file = form.get('file')
       if (!file || typeof file === 'string') return json({ error: 'File wajib diunggah' }, 400)
       const bytes = Buffer.from(await file.arrayBuffer())
-      await fs.mkdir(UP_DIR, { recursive: true })
       const id = uuidv4()
-      const ext = (file.name && file.name.includes('.')) ? '.' + file.name.split('.').pop() : ''
-      const storedName = id + ext
-      await fs.writeFile(path.join(UP_DIR, storedName), bytes)
-      const doc = { id, name: file.name || storedName, storedName, mime: file.type || 'application/octet-stream', size: bytes.length, created_at: new Date() }
+      const origName = file.name || id
+      const mime = file.type || 'application/octet-stream'
+      // Optional Drive folder path context from client (Lomba/Madrasah)
+      const folderCtx = form.get('folder_path')
+      let doc = null
+      if (googleConfigured()) {
+        try {
+          let folderId
+          if (folderCtx && typeof folderCtx === 'string') {
+            folderId = await ensureFolderPath(folderCtx.split('/').filter(Boolean))
+          }
+          const up = await uploadToDrive({ buffer: bytes, filename: `${Date.now()}_${origName}`, mimeType: mime, folderId })
+          doc = { id, name: origName, driveId: up.driveId, drive_url: up.url, mime, size: bytes.length, created_at: new Date() }
+        } catch (e) {
+          console.error('[drive-upload] failed, fallback to disk:', e.message)
+        }
+      }
+      if (!doc) {
+        await fs.mkdir(UP_DIR, { recursive: true })
+        const ext = (origName && origName.includes('.')) ? '.' + origName.split('.').pop() : ''
+        const storedName = id + ext
+        await fs.writeFile(path.join(UP_DIR, storedName), bytes)
+        doc = { id, name: origName, storedName, mime, size: bytes.length, created_at: new Date() }
+      }
       await db.collection('files').insertOne(doc)
-      return json({ id, name: doc.name, url: `/api/files/${id}`, size: doc.size })
+      return json({ id, name: doc.name, url: `/api/files/${id}`, size: doc.size, drive_url: doc.drive_url || null })
     }
 
     // ---------- AUTH ----------
@@ -287,6 +395,7 @@ async function handleRoute(request, { params }) {
       }
       doc.complete = computeComplete(doc)
       await db.collection('peserta').insertOne(doc)
+      await syncSheetAppend(db, [doc])
       return json(clean(doc))
     }
     // ---------- PESERTA TEAM (kelompok) ----------
@@ -328,6 +437,7 @@ async function handleRoute(request, { params }) {
         await db.collection('peserta').insertOne(doc)
         created.push(clean(doc))
       }
+      await syncSheetAppend(db, created)
       return json({ team_id, team_name, count: created.length, members: created })
     }
     if (p[0] === 'peserta' && p[1] && p[2] === 'status' && method === 'PUT') {
