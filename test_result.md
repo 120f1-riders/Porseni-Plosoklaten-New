@@ -277,6 +277,18 @@ backend:
         -agent: "testing"
         -comment: "✅ ALL 4 TESTS PASSED: (1) POST /peserta/team with 3 members (no files) as admin_madrasah for Futsal (kelompok) returns {team_id, team_name, count:3, members:[...]} with all members having is_group=true, same team_id, sequential nomor_peserta=['001','002','003'], complete=false (no files). (2) POST /peserta/team with 1 member WITH all 3 files (akte, surat_ket, pas_photo each with .id and .name) returns member with complete=true. (3) POST /peserta/team with empty members array returns HTTP 400 as expected. (4) POST /peserta/team with no token returns HTTP 401 as expected. Team registration working correctly with proper team_id sharing, sequential numbering, and completeness computation per member."
 
+  - task: "Google Drive (OAuth) + Google Sheets (service account) integration"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js, lib/porseni/google.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: true
+        -agent: "main"
+        -comment: "Sheets via service account: peserta auto-append to tab 'Peserta' on POST /peserta & /peserta/team; POST /integrations/sync overwrites full sheet. Drive via OAuth user delegation (service account has no storage quota): POST /upload -> user's Drive folder w/ nested folder path, GET /files/:id streams bytes back. OAuth flow: GET /google/start?token=<super_admin> -> consent; GET /google/callback stores refresh_token in settings collection. GET /integrations/status reports sheets_configured/oauth_configured/drive_connected. Verified end-to-end MANUALLY (real spreadsheet append + real drive_url upload + serve-back). NOT auto-tested to avoid polluting user's real Google Sheet/Drive."
+
 frontend:
   - task: "Gender in registration + Excel template/bulk import + Persyaratan upload + completeness gating (Admin Madrasah)"
     implemented: true
@@ -348,3 +360,6 @@ agent_communication:
 
     -agent: "testing"
     -message: "✅ FASE 1 BACKEND TESTING COMPLETE - ALL 23 TESTS PASSED (4 feature areas). Comprehensive testing of NEW/CHANGED backend endpoints: (1) Profile self-service (10/10 tests): GET /auth/profile with super_admin/admin_madrasah/panitia tokens returns own data including password_plain, photo_url (optional), assigned_lomba_id, madrasah_name with NO password/token/_id leak; 401 with no/invalid token; PUT /auth/profile updates name, photo_url, password (rehashed + password_plain updated); login with NEW password succeeds; /auth/login response does NOT leak password/password_plain/token. (2) Lomba team_size (5/5 tests): POST /lomba with type='kelompok' and team_size=6 persists team_size=6; type='individu' returns team_size=null; PUT /lomba/:id updates team_size to 8; GET /lomba returns team_size field; cleanup successful. (3) Peserta nomor_peserta manual edit (3/3 tests): POST /peserta creates participant with auto nomor_peserta; PUT /peserta/:id {nomor_peserta:'099'} persists; GET verifies update. (4) Team registration (4/4 tests): POST /peserta/team with 3 members (no files) creates team with shared team_id, sequential nomor_peserta, complete=false; member WITH all 3 files (akte, surat_ket, pas_photo) has complete=true; empty members returns 400; no token returns 401. All backend APIs functioning correctly with proper authentication, data persistence, and validation. NOTE: admin.mi@porseni.id password changed to newpass123 during testing. Ready for main agent to summarize and finish."
+
+    -agent: "main"
+    -message: "GOOGLE INTEGRATION ADDED (Drive OAuth + Sheets service account). Env restored (.env was missing) + super_admin re-seeded (super@porseni.id/admin123). Sheets: service account writes to spreadsheet tab 'Peserta'; peserta auto-append on create; POST /integrations/sync full re-sync. Drive: OAuth user delegation because service accounts have no storage quota; /google/start + /google/callback store refresh_token in settings collection; /upload -> Drive (fallback disk if not connected); /files/:id streams from Drive. New SuperAdmin 'Integrasi Google' page. Verified end-to-end MANUALLY (real Google APIs) - both working. Did NOT run automated backend testing agent to avoid writing junk into the user's real Google Sheet/Drive. If automated testing is desired later, point it at a throwaway spreadsheet/folder."
