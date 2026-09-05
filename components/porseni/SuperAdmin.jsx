@@ -5,7 +5,7 @@ import { toast } from 'sonner'
 import {
   Trophy, Users, GraduationCap, Loader2, Plus, Pencil, Trash2, CheckCircle, ShieldCheck,
   Upload, Award, Download, IdCard, Image as ImageIcon, Printer, UsersRound, User,
-  Eye, EyeOff, KeyRound, Copy, FileText, BellRing,
+  Eye, EyeOff, KeyRound, Copy, FileText, BellRing, Cloud, RefreshCw, FileSpreadsheet, Link2, Unlink,
 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -19,7 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
 import TemplateStudio from '@/components/porseni/TemplateStudio'
 import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, GENDERS, ROLE_LABEL, CERT_DEFAULT_FIELDS, CERT_PANITIA_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
-import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
+import { api, uploadFile, fileUrl, getToken } from '@/lib/porseni/api'
 
 export default function SuperAdmin({ view }) {
   if (view === 'lomba') return <ManajemenLomba />
@@ -28,7 +28,136 @@ export default function SuperAdmin({ view }) {
   if (view === 'cetak') return <CetakAdmin />
   if (view === 'sertifikat') return <Sertifikat />
   if (view === 'idcard') return <IdCardManager />
+  if (view === 'integrasi') return <IntegrasiGoogle />
   return <Dashboard />
+}
+
+/* ---------------- INTEGRASI GOOGLE ---------------- */
+function IntegrasiGoogle() {
+  const [st, setSt] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [syncing, setSyncing] = useState(false)
+
+  const load = async () => {
+    setLoading(true)
+    try { setSt(await api('/integrations/status')) }
+    catch (e) { toast.error(e.message) }
+    finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+
+  const connectDrive = () => {
+    const tk = getToken()
+    const w = window.open(`/api/google/start?token=${encodeURIComponent(tk)}`, '_blank', 'width=520,height=680')
+    // Poll for connection after popup closes
+    const timer = setInterval(async () => {
+      if (w && w.closed) {
+        clearInterval(timer)
+        await load()
+      }
+    }, 1500)
+  }
+
+  const disconnectDrive = async () => {
+    if (!confirm('Putuskan koneksi Google Drive? Berkas baru akan disimpan di server lokal.')) return
+    try { await api('/integrations/drive/disconnect', { method: 'POST' }); toast.success('Koneksi Drive diputus'); load() }
+    catch (e) { toast.error(e.message) }
+  }
+
+  const syncSheet = async () => {
+    setSyncing(true)
+    try {
+      const r = await api('/integrations/sync', { method: 'POST' })
+      toast.success(`Berhasil sinkron ${r.synced} peserta ke Google Sheet`)
+    } catch (e) { toast.error(e.message) }
+    finally { setSyncing(false) }
+  }
+
+  if (loading) return <div className="flex items-center justify-center py-20"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div>
+
+  const s = st || {}
+  return (
+    <div className="space-y-5">
+      <PageHeader title="Integrasi Google" desc="Hubungkan aplikasi ke Google Drive & Google Sheets" />
+
+      {/* Google Sheets */}
+      <Card className="p-5">
+        <div className="flex items-start gap-3">
+          <div className="h-11 w-11 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+            <FileSpreadsheet className="h-6 w-6 text-emerald-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold">Google Sheets</h3>
+              {s.sheets_configured
+                ? <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Terhubung</Badge>
+                : <Badge variant="secondary">Belum dikonfigurasi</Badge>}
+            </div>
+            {s.sheets_configured ? (
+              <div className="text-sm text-muted-foreground mt-1 space-y-0.5">
+                <p>Spreadsheet: <span className="font-medium text-foreground">{s.spreadsheet || '-'}</span></p>
+                <p>Tab: <span className="font-medium text-foreground">{s.target_tab}</span> {s.tab_exists ? '' : '(akan dibuat otomatis)'}</p>
+                {s.sheets_error && <p className="text-red-600">Error: {s.sheets_error}</p>}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-1">Kredensial service account belum diset.</p>
+            )}
+            <p className="text-xs text-muted-foreground mt-2">Setiap peserta yang didaftarkan otomatis ditambahkan ke Google Sheet. Gunakan tombol di bawah untuk menyinkron ulang seluruh data.</p>
+            <div className="mt-3">
+              <Button size="sm" onClick={syncSheet} disabled={syncing || !s.sheets_configured}>
+                {syncing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <RefreshCw className="h-4 w-4 mr-1" />}
+                Sinkronkan Semua Sekarang
+              </Button>
+            </div>
+          </div>
+        </div>
+      </Card>
+
+      {/* Google Drive */}
+      <Card className="p-5">
+        <div className="flex items-start gap-3">
+          <div className="h-11 w-11 rounded-lg bg-blue-100 flex items-center justify-center shrink-0">
+            <Cloud className="h-6 w-6 text-blue-600" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="font-semibold">Google Drive</h3>
+              {s.drive_connected
+                ? <Badge className="bg-emerald-100 text-emerald-700 hover:bg-emerald-100">Terhubung</Badge>
+                : (s.oauth_configured
+                  ? <Badge className="bg-amber-100 text-amber-700 hover:bg-amber-100">Belum dihubungkan</Badge>
+                  : <Badge variant="secondary">Belum dikonfigurasi</Badge>)}
+            </div>
+            {s.drive_connected ? (
+              <>
+                <div className="text-sm text-muted-foreground mt-1">
+                  <p>Folder tujuan: <span className="font-medium text-foreground">{s.drive_folder || '-'}</span></p>
+                  {s.drive_error && <p className="text-red-600">Error: {s.drive_error}</p>}
+                </div>
+                <p className="text-xs text-muted-foreground mt-2">Berkas peserta (Akte, Surat Ket, Pas Photo) tersimpan di Google Drive Anda.</p>
+                <div className="mt-3">
+                  <Button size="sm" variant="outline" onClick={disconnectDrive}>
+                    <Unlink className="h-4 w-4 mr-1" /> Putuskan Koneksi
+                  </Button>
+                </div>
+              </>
+            ) : s.oauth_configured ? (
+              <>
+                <p className="text-sm text-muted-foreground mt-1">Klik tombol di bawah untuk mengizinkan aplikasi menyimpan berkas ke Google Drive Anda (login sekali saja).</p>
+                <div className="mt-3">
+                  <Button size="sm" onClick={connectDrive}>
+                    <Link2 className="h-4 w-4 mr-1" /> Hubungkan Google Drive
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <p className="text-sm text-muted-foreground mt-1">Kredensial OAuth (Client ID &amp; Secret) belum diset. Hubungi admin sistem untuk mengaktifkan penyimpanan Drive. Sementara ini berkas disimpan di server lokal.</p>
+            )}
+          </div>
+        </div>
+      </Card>
+    </div>
+  )
 }
 
 /* ---------------- DASHBOARD ---------------- */

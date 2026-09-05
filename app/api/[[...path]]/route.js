@@ -5,7 +5,8 @@ import crypto from 'node:crypto'
 import fs from 'node:fs/promises'
 import path from 'node:path'
 import {
-  googleConfigured,
+  sheetsConfigured,
+  oauthConfigured,
   uploadToDrive,
   downloadFromDrive,
   ensureFolderPath,
@@ -13,7 +14,10 @@ import {
   ensureHeader,
   appendRows,
   overwriteSheet,
-  statusCheck,
+  sheetsStatus,
+  driveStatus,
+  driveAuthUrl,
+  exchangeCode,
 } from '@/lib/porseni/google'
 
 const SHEET_HEADER = [
@@ -40,10 +44,16 @@ async function buildSheetRow(db, doc, lomba) {
   ]
 }
 
+// Helper: read stored Drive OAuth refresh token from settings
+async function getDriveRefreshToken(db) {
+  const s = await db.collection('settings').findOne({ key: 'google_drive_oauth' })
+  return s ? s.refresh_token : null
+}
+
 // Append one or more peserta docs to Google Sheet (non-blocking / best-effort)
 async function syncSheetAppend(db, docs) {
   try {
-    if (!googleConfigured() || !process.env.GOOGLE_SHEETS_SPREADSHEET_ID) return
+    if (!sheetsConfigured()) return
     await ensureTab()
     await ensureHeader(SHEET_HEADER)
     const rows = []
@@ -140,19 +150,36 @@ async function handleRoute(request, { params }) {
     if (route === '/integrations/status' && method === 'GET') {
       const u = await getUser(request)
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
-      if (!googleConfigured()) return json({ configured: false, message: 'Kredensial Google belum diset' })
-      try {
-        const st = await statusCheck()
-        st.tab_exists = Array.isArray(st.tabs) && st.tabs.includes(st.target_tab)
-        return json(st)
-      } catch (e) {
-        return json({ configured: true, ok: false, error: e.message }, 200)
+      const out = {
+        sheets_configured: sheetsConfigured(),
+        oauth_configured: oauthConfigured(),
+        drive_connected: false,
       }
+      // Sheets status
+      if (sheetsConfigured()) {
+        try {
+          const st = await sheetsStatus()
+          out.spreadsheet = st.spreadsheet
+          out.tabs = st.tabs
+          out.target_tab = st.target_tab
+          out.tab_exists = Array.isArray(st.tabs) && st.tabs.includes(st.target_tab)
+        } catch (e) { out.sheets_error = e.message }
+      }
+      // Drive OAuth status
+      const rt = await getDriveRefreshToken(db)
+      if (oauthConfigured() && rt) {
+        try {
+          const ds = await driveStatus(rt)
+          out.drive_connected = true
+          out.drive_folder = ds.drive_folder
+        } catch (e) { out.drive_error = e.message }
+      }
+      return json(out)
     }
     if (route === '/integrations/sync' && method === 'POST') {
       const u = await getUser(request)
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
-      if (!googleConfigured()) return json({ error: 'Kredensial Google belum diset' }, 400)
+      if (!sheetsConfigured()) return json({ error: 'Google Sheets belum dikonfigurasi' }, 400)
       try {
         await ensureTab()
         const all = await db.collection('peserta').find({}).sort({ lomba_name: 1, nomor_peserta: 1 }).toArray()
@@ -167,6 +194,56 @@ async function handleRoute(request, { params }) {
         return json({ error: e.message }, 500)
       }
     }
+    // Disconnect Drive OAuth (remove stored refresh token)
+    if (route === '/integrations/drive/disconnect' && method === 'POST') {
+      const u = await getUser(request)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
+      await db.collection('settings').deleteOne({ key: 'google_drive_oauth' })
+      return json({ ok: true })
+    }
+
+    // ---------- GOOGLE OAUTH (Drive) ----------
+    // Start: /google/start?token=<super_admin_token>  -> redirect to Google consent
+    if (route === '/google/start' && method === 'GET') {
+      if (!oauthConfigured()) return json({ error: 'OAuth belum dikonfigurasi (client id/secret)' }, 400)
+      const url = new URL(request.url)
+      const tk = url.searchParams.get('token')
+      const owner = tk ? await db.collection('users').findOne({ token: tk }) : null
+      if (!owner || owner.role !== 'super_admin') return json({ error: 'Akses ditolak. Sertakan token super_admin.' }, 403)
+      const state = tk
+      const authUrl = driveAuthUrl(state)
+      return handleCORS(NextResponse.redirect(authUrl))
+    }
+    // Callback: /google/callback?code=...&state=<super_admin_token>
+    if (route === '/google/callback' && method === 'GET') {
+      const url = new URL(request.url)
+      const code = url.searchParams.get('code')
+      const state = url.searchParams.get('state')
+      const err = url.searchParams.get('error')
+      const htmlPage = (title, msg, ok) => new NextResponse(
+        `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${title}</title></head><body style="font-family:system-ui,Arial;background:#f0fdf4;margin:0;display:flex;min-height:100vh;align-items:center;justify-content:center"><div style="background:#fff;max-width:440px;padding:32px;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.08);text-align:center"><div style="font-size:48px">${ok ? '&#9989;' : '&#9888;&#65039;'}</div><h2 style="color:#166534;margin:12px 0">${title}</h2><p style="color:#374151;line-height:1.5">${msg}</p><a href="/" style="display:inline-block;margin-top:16px;background:#16a34a;color:#fff;text-decoration:none;padding:10px 20px;border-radius:8px">Kembali ke Aplikasi</a></div></body></html>`,
+        { status: 200, headers: { 'Content-Type': 'text/html; charset=utf-8' } }
+      )
+      if (err) return htmlPage('Otorisasi Dibatalkan', 'Proses menghubungkan Google Drive dibatalkan atau gagal: ' + err, false)
+      const owner = state ? await db.collection('users').findOne({ token: state }) : null
+      if (!code || !owner || owner.role !== 'super_admin') {
+        return htmlPage('Otorisasi Gagal', 'State tidak valid atau kode tidak ada. Silakan ulangi dari aplikasi.', false)
+      }
+      try {
+        const tokens = await exchangeCode(code)
+        if (!tokens.refresh_token) {
+          return htmlPage('Perlu Diulang', 'Google tidak mengirim refresh token. Buka myaccount.google.com/permissions, hapus akses aplikasi ini, lalu coba hubungkan lagi.', false)
+        }
+        await db.collection('settings').updateOne(
+          { key: 'google_drive_oauth' },
+          { $set: { key: 'google_drive_oauth', refresh_token: tokens.refresh_token, connected_by: owner.id, connected_at: new Date() } },
+          { upsert: true }
+        )
+        return htmlPage('Google Drive Terhubung!', 'Berhasil. Berkas peserta sekarang akan tersimpan di Google Drive Anda. Anda bisa menutup halaman ini.', true)
+      } catch (e) {
+        return htmlPage('Otorisasi Gagal', 'Terjadi kesalahan: ' + e.message, false)
+      }
+    }
 
     // ---------- FILE SERVE ---------- GET /files/:id
     if (p[0] === 'files' && p[1] && method === 'GET') {
@@ -174,7 +251,8 @@ async function handleRoute(request, { params }) {
       if (!f) return json({ error: 'File tidak ditemukan' }, 404)
       let buf
       if (f.driveId) {
-        buf = await downloadFromDrive(f.driveId)
+        const rt = await getDriveRefreshToken(db)
+        buf = await downloadFromDrive(f.driveId, rt)
       } else {
         buf = await fs.readFile(path.join(UP_DIR, f.storedName))
       }
@@ -200,13 +278,14 @@ async function handleRoute(request, { params }) {
       // Optional Drive folder path context from client (Lomba/Madrasah)
       const folderCtx = form.get('folder_path')
       let doc = null
-      if (googleConfigured()) {
+      const refreshToken = await getDriveRefreshToken(db)
+      if (oauthConfigured() && refreshToken) {
         try {
           let folderId
           if (folderCtx && typeof folderCtx === 'string') {
-            folderId = await ensureFolderPath(folderCtx.split('/').filter(Boolean))
+            folderId = await ensureFolderPath(folderCtx.split('/').filter(Boolean), refreshToken)
           }
-          const up = await uploadToDrive({ buffer: bytes, filename: `${Date.now()}_${origName}`, mimeType: mime, folderId })
+          const up = await uploadToDrive({ buffer: bytes, filename: `${Date.now()}_${origName}`, mimeType: mime, folderId, refreshToken })
           doc = { id, name: origName, driveId: up.driveId, drive_url: up.url, mime, size: bytes.length, created_at: new Date() }
         } catch (e) {
           console.error('[drive-upload] failed, fallback to disk:', e.message)
