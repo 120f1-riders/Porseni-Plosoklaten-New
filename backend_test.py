@@ -8,7 +8,7 @@ import json
 import sys
 
 # Base URL from .env NEXT_PUBLIC_BASE_URL
-BASE_URL = "https://b0710da5-c194-45c3-af2f-8597520ec3c3.preview.emergentagent.com/api"
+BASE_URL = "https://sim-registration.preview.emergentagent.com/api"
 
 # Seed accounts
 SUPER_ADMIN = {"email": "super@porseni.id", "password": "admin123"}
