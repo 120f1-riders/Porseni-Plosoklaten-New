@@ -33,7 +33,7 @@ function App() {
   }
 
   if (!user) return <Auth onAuth={setUser} />
-  return <Shell user={user} onLogout={() => { clearToken(); setUser(null) }} />
+  return <Shell user={user} onLogout={() => { clearToken(); setUser(null) }} onUserUpdate={setUser} />
 }
 
 export default App

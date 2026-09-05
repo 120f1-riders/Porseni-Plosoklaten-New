@@ -95,10 +95,12 @@ function FileUploadRow({ item, value, onUploaded }) {
 }
 
 function Pendaftaran({ user, lomba, onDone }) {
+  const [mode, setMode] = useState('perorangan')
   const [form, setForm] = useState({ participant_name: '', gender: '', ttl: '', nisn: '', lomba_id: '' })
   const [files, setFiles] = useState({})
   const [saving, setSaving] = useState(false)
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+  const individuLomba = lomba.filter((l) => l.type !== 'kelompok')
 
   const submit = async () => {
     if (!form.participant_name || !form.lomba_id) return toast.error('Nama & Cabang Lomba wajib diisi')
@@ -122,64 +124,192 @@ function Pendaftaran({ user, lomba, onDone }) {
     <div>
       <PageHeader title="Pendaftaran Peserta" desc={`Madrasah: ${user.madrasah_name || '-'}`} />
 
-      <BulkImport user={user} lomba={lomba} onDone={onDone} />
+      <div className="flex gap-2 mb-4">
+        <Button variant={mode === 'perorangan' ? 'default' : 'outline'} onClick={() => setMode('perorangan')}><UserPlus className="h-4 w-4 mr-1" />Perorangan</Button>
+        <Button variant={mode === 'tim' ? 'default' : 'outline'} onClick={() => setMode('tim')}><Users className="h-4 w-4 mr-1" />Tim / Kelompok</Button>
+      </div>
 
-      <div className="grid lg:grid-cols-2 gap-6">
-        <Card className="p-6">
-          <h3 className="font-semibold mb-4">Data Peserta (Satuan)</h3>
-          <div className="space-y-4">
-            <div className="space-y-1.5">
-              <Label>Nama Lengkap</Label>
-              <Input value={form.participant_name} onChange={(e) => set('participant_name', e.target.value)} placeholder="Nama peserta" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Jenis Kelamin</Label>
-              <Select value={form.gender} onValueChange={(v) => set('gender', v)}>
-                <SelectTrigger><SelectValue placeholder="Pilih jenis kelamin" /></SelectTrigger>
-                <SelectContent>
-                  {GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="space-y-1.5">
-              <Label>NISN</Label>
-              <Input value={form.nisn} onChange={(e) => set('nisn', e.target.value)} placeholder="Nomor Induk Siswa Nasional" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Tempat, Tanggal Lahir</Label>
-              <Input value={form.ttl} onChange={(e) => set('ttl', e.target.value)} placeholder="Kediri, 01 Januari 2015" />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Asal Madrasah</Label>
-              <Input value={user.madrasah_name || ''} disabled />
-            </div>
-            <div className="space-y-1.5">
-              <Label>Cabang Lomba</Label>
-              <Select value={form.lomba_id} onValueChange={(v) => set('lomba_id', v)}>
-                <SelectTrigger><SelectValue placeholder="Pilih cabang lomba" /></SelectTrigger>
-                <SelectContent>
-                  {lomba.map((l) => <SelectItem key={l.id} value={l.id}>{l.name} ({l.category})</SelectItem>)}
-                </SelectContent>
-              </Select>
-            </div>
+      {mode === 'tim' ? (
+        <TeamPendaftaran user={user} lomba={lomba} onDone={onDone} />
+      ) : (
+        <>
+          <BulkImport user={user} lomba={lomba} onDone={onDone} />
+          <div className="grid lg:grid-cols-2 gap-6">
+            <Card className="p-6">
+              <h3 className="font-semibold mb-4">Data Peserta (Satuan)</h3>
+              <div className="space-y-4">
+                <div className="space-y-1.5">
+                  <Label>Nama Lengkap</Label>
+                  <Input value={form.participant_name} onChange={(e) => set('participant_name', e.target.value)} placeholder="Nama peserta" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Jenis Kelamin</Label>
+                  <Select value={form.gender} onValueChange={(v) => set('gender', v)}>
+                    <SelectTrigger><SelectValue placeholder="Pilih jenis kelamin" /></SelectTrigger>
+                    <SelectContent>
+                      {GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>NISN</Label>
+                  <Input value={form.nisn} onChange={(e) => set('nisn', e.target.value)} placeholder="Nomor Induk Siswa Nasional" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tempat, Tanggal Lahir</Label>
+                  <Input value={form.ttl} onChange={(e) => set('ttl', e.target.value)} placeholder="Kediri, 01 Januari 2015" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Asal Madrasah</Label>
+                  <Input value={user.madrasah_name || ''} disabled />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Cabang Lomba (Perorangan)</Label>
+                  <Select value={form.lomba_id} onValueChange={(v) => set('lomba_id', v)}>
+                    <SelectTrigger><SelectValue placeholder="Pilih cabang lomba" /></SelectTrigger>
+                    <SelectContent>
+                      {individuLomba.map((l) => <SelectItem key={l.id} value={l.id}>{l.name} ({l.category})</SelectItem>)}
+                      {individuLomba.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada lomba perorangan</div>}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+            </Card>
+
+            <Card className="p-6">
+              <h3 className="font-semibold mb-1">Berkas Persyaratan</h3>
+              <p className="text-xs text-muted-foreground mb-4 flex items-center gap-1">
+                <FolderTree className="h-3.5 w-3.5" /> Disimpan terstruktur: [Lomba]/[Madrasah]/[Peserta]
+              </p>
+              <div className="space-y-3">
+                {REQ_FILES.map((item) => (
+                  <FileUploadRow key={item.key} item={item} value={files[item.key]} onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
+                ))}
+              </div>
+              <Button className="w-full mt-6" disabled={saving} onClick={submit}>
+                {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Daftarkan Peserta
+              </Button>
+            </Card>
           </div>
-        </Card>
+        </>
+      )}
+    </div>
+  )
+}
 
-        <Card className="p-6">
-          <h3 className="font-semibold mb-1">Berkas Persyaratan</h3>
-          <p className="text-xs text-muted-foreground mb-4 flex items-center gap-1">
-            <FolderTree className="h-3.5 w-3.5" /> Disimpan terstruktur: [Lomba]/[Madrasah]/[Peserta]
-          </p>
-          <div className="space-y-3">
-            {REQ_FILES.map((item) => (
-              <FileUploadRow key={item.key} item={item} value={files[item.key]} onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
+function TeamMemberCard({ index, member, onChange }) {
+  return (
+    <Card className="p-4 border-primary/20">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-sm font-semibold">{index + 1}</div>
+        <div className="font-semibold text-sm">Anggota {index + 1}</div>
+      </div>
+      <div className="grid sm:grid-cols-2 gap-3">
+        <div className="space-y-1.5">
+          <Label className="text-xs">Nama Lengkap</Label>
+          <Input value={member.participant_name} onChange={(e) => onChange({ participant_name: e.target.value })} placeholder="Nama anggota" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Jenis Kelamin</Label>
+          <Select value={member.gender} onValueChange={(v) => onChange({ gender: v })}>
+            <SelectTrigger><SelectValue placeholder="L / P" /></SelectTrigger>
+            <SelectContent>{GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+          </Select>
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">NISN</Label>
+          <Input value={member.nisn} onChange={(e) => onChange({ nisn: e.target.value })} placeholder="NISN" />
+        </div>
+        <div className="space-y-1.5">
+          <Label className="text-xs">Tempat, Tanggal Lahir</Label>
+          <Input value={member.ttl} onChange={(e) => onChange({ ttl: e.target.value })} placeholder="Kediri, 01 Januari 2015" />
+        </div>
+      </div>
+      <div className="mt-3 space-y-2">
+        <p className="text-xs text-muted-foreground">Berkas persyaratan (khusus anggota ini):</p>
+        {REQ_FILES.map((item) => (
+          <FileUploadRow key={item.key} item={item} value={member.files?.[item.key]} onUploaded={(res) => onChange({ files: { ...(member.files || {}), [item.key]: res } })} />
+        ))}
+      </div>
+    </Card>
+  )
+}
+
+function TeamPendaftaran({ user, lomba, onDone }) {
+  const groupLomba = lomba.filter((l) => l.type === 'kelompok')
+  const [lombaId, setLombaId] = useState('')
+  const [members, setMembers] = useState([])
+  const [saving, setSaving] = useState(false)
+  const selected = groupLomba.find((l) => l.id === lombaId)
+
+  useEffect(() => {
+    if (selected) {
+      const n = Number(selected.team_size) || 1
+      setMembers(Array.from({ length: n }, () => ({ participant_name: '', gender: '', nisn: '', ttl: '', files: {} })))
+    } else {
+      setMembers([])
+    }
+  }, [lombaId])
+
+  const updateMember = (i, patch) => setMembers((ms) => ms.map((m, j) => (j === i ? { ...m, ...patch } : m)))
+
+  const submit = async () => {
+    if (!selected) return toast.error('Pilih cabang lomba kelompok terlebih dahulu')
+    const filled = members.filter((m) => m.participant_name.trim())
+    if (filled.length === 0) return toast.error('Isi minimal satu anggota tim')
+    setSaving(true)
+    try {
+      const payload = {
+        lomba_id: selected.id,
+        madrasah_name: user.madrasah_name,
+        members: filled.map((m) => ({
+          participant_name: m.participant_name,
+          gender: m.gender,
+          nisn: m.nisn,
+          ttl: m.ttl,
+          files: Object.fromEntries(Object.entries(m.files || {}).filter(([, v]) => v && v.id).map(([k, v]) => [k, { id: v.id, name: v.name }])),
+        })),
+      }
+      const res = await api('/peserta/team', { method: 'POST', body: payload })
+      toast.success(`Tim berhasil didaftarkan: ${res.count} anggota.`, { description: 'Pastikan seluruh berkas tiap anggota lengkap agar diteruskan ke Panitia (cek menu Daftar Peserta Saya).', duration: 8000 })
+      setLombaId(''); setMembers([]); onDone()
+    } catch (e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
+  return (
+    <div className="space-y-6">
+      <Card className="p-6 bg-emerald-50/60 border-emerald-200">
+        <div className="grid sm:grid-cols-2 gap-4 items-end">
+          <div className="space-y-1.5">
+            <Label>Cabang Lomba Kelompok</Label>
+            <Select value={lombaId} onValueChange={setLombaId}>
+              <SelectTrigger><SelectValue placeholder="Pilih lomba kelompok (Voli, Futsal, dst)" /></SelectTrigger>
+              <SelectContent>
+                {groupLomba.map((l) => <SelectItem key={l.id} value={l.id}>{l.name} ({l.category}) — {l.team_size || '?'} anggota</SelectItem>)}
+                {groupLomba.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada lomba kelompok</div>}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="text-sm text-muted-foreground">
+            {selected ? <>Mendaftarkan <b>1 tim</b> dari <b>{user.madrasah_name}</b> berisi <b>{Number(selected.team_size) || 1} anggota</b>.</> : 'Pilih cabang lomba untuk menampilkan formulir anggota tim.'}
+          </div>
+        </div>
+      </Card>
+
+      {selected && (
+        <>
+          <div className="grid lg:grid-cols-2 gap-4">
+            {members.map((m, i) => (
+              <TeamMemberCard key={i} index={i} member={m} onChange={(patch) => updateMember(i, patch)} />
             ))}
           </div>
-          <Button className="w-full mt-6" disabled={saving} onClick={submit}>
-            {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Daftarkan Peserta
-          </Button>
-        </Card>
-      </div>
+          <div className="flex justify-end">
+            <Button disabled={saving} onClick={submit}>
+              {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Daftarkan Tim ({members.length} Anggota)
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   )
 }

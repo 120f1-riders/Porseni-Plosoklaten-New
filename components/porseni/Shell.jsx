@@ -3,13 +3,14 @@
 import { useState } from 'react'
 import {
   LayoutDashboard, UserPlus, Users, Trophy, ShieldCheck, Award, IdCard,
-  Printer, Upload, LogOut, GraduationCap, Menu, X,
+  Printer, Upload, LogOut, GraduationCap, Menu, X, User,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ROLE_LABEL } from '@/lib/porseni/constants'
 import AdminMadrasah from '@/components/porseni/AdminMadrasah'
 import Panitia from '@/components/porseni/Panitia'
 import SuperAdmin from '@/components/porseni/SuperAdmin'
+import ProfileView from '@/components/porseni/ProfileView'
 
 const MENUS = {
   super_admin: [
@@ -17,23 +18,28 @@ const MENUS = {
     { id: 'lomba', label: 'Manajemen Lomba', icon: Trophy },
     { id: 'pengguna', label: 'Manajemen Pengguna', icon: ShieldCheck },
     { id: 'pendaftar', label: 'Data Pendaftar', icon: Users },
+    { id: 'cetak', label: 'Cetak Administrasi', icon: Printer },
     { id: 'sertifikat', label: 'Manajemen Sertifikat', icon: Award },
     { id: 'idcard', label: 'ID Card', icon: IdCard },
+    { id: 'profil', label: 'Profil Saya', icon: User },
   ],
   admin_madrasah: [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'pendaftaran', label: 'Pendaftaran Peserta', icon: UserPlus },
     { id: 'peserta', label: 'Daftar Peserta Saya', icon: Users },
+    { id: 'profil', label: 'Profil Saya', icon: User },
   ],
   panitia: [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'peserta', label: 'Daftar Peserta', icon: Users },
     { id: 'cetak', label: 'Cetak Administrasi', icon: Printer },
+    { id: 'idcard', label: 'ID Card', icon: IdCard },
     { id: 'hasil', label: 'Upload Hasil & Juara', icon: Upload },
+    { id: 'profil', label: 'Profil Saya', icon: User },
   ],
 }
 
-export default function Shell({ user, onLogout }) {
+export default function Shell({ user, onLogout, onUserUpdate }) {
   const menus = MENUS[user.role] || []
   const [active, setActive] = useState(menus[0]?.id || 'dashboard')
   const [open, setOpen] = useState(false)
@@ -102,9 +108,15 @@ export default function Shell({ user, onLogout }) {
         </header>
 
         <main className="flex-1 p-4 md:p-8 max-w-[1400px] w-full mx-auto">
-          {user.role === 'super_admin' && <SuperAdmin view={active} user={user} />}
-          {user.role === 'admin_madrasah' && <AdminMadrasah view={active} user={user} />}
-          {user.role === 'panitia' && <Panitia view={active} user={user} />}
+          {active === 'profil' ? (
+            <ProfileView user={user} onUpdated={onUserUpdate} />
+          ) : (
+            <>
+              {user.role === 'super_admin' && <SuperAdmin view={active} user={user} />}
+              {user.role === 'admin_madrasah' && <AdminMadrasah view={active} user={user} />}
+              {user.role === 'panitia' && <Panitia view={active} user={user} />}
+            </>
+          )}
         </main>
       </div>
     </div>

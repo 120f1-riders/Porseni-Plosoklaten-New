@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
-import { RANKS, GENDERS } from '@/lib/porseni/constants'
+import TemplateStudio from '@/components/porseni/TemplateStudio'
+import { RANKS, GENDERS, IDCARD_PESERTA_FIELDS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
 
 export default function Panitia({ view, user }) {
@@ -34,6 +35,7 @@ export default function Panitia({ view, user }) {
 
   if (view === 'dashboard') return <Dashboard lomba={lomba} peserta={peserta} loading={loading} />
   if (view === 'cetak') return <Cetak lomba={lomba} peserta={peserta} criteria={criteria} kopSurat={kopSurat} />
+  if (view === 'idcard') return <IdCardCetak lomba={lomba} peserta={peserta} loading={loading} />
   if (view === 'hasil') return <Hasil lomba={lomba} peserta={peserta} juara={juara} hasil={hasil} onChange={load} />
   return <DaftarPeserta lomba={lomba} peserta={peserta} loading={loading} onChange={load} />
 }
@@ -54,20 +56,41 @@ function Dashboard({ lomba, peserta, loading }) {
   )
 }
 
+function NomorCell({ p, onSave }) {
+  const [val, setVal] = useState(p.nomor_peserta || '')
+  useEffect(() => { setVal(p.nomor_peserta || '') }, [p.nomor_peserta])
+  const commit = () => { const v = String(val).trim(); if (v && v !== p.nomor_peserta) onSave(p.id, v) }
+  return (
+    <input
+      className="w-16 border rounded px-2 py-1 text-sm font-mono focus:ring-2 focus:ring-primary focus:outline-none"
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onKeyDown={(e) => { if (e.key === 'Enter') e.currentTarget.blur() }}
+      onBlur={commit}
+      title="Klik untuk mengubah nomor urut, tekan Enter untuk simpan"
+    />
+  )
+}
+
 function DaftarPeserta({ lomba, peserta, loading, onChange }) {
   const setStatus = async (id, status) => {
     try { await api(`/peserta/${id}/status`, { method: 'PUT', body: { status } }); toast.success('Status diperbarui'); onChange() }
     catch (e) { toast.error(e.message) }
   }
+  const setNomor = async (id, nomor_peserta) => {
+    try { await api(`/peserta/${id}`, { method: 'PUT', body: { nomor_peserta } }); toast.success('Nomor urut diperbarui'); onChange() }
+    catch (e) { toast.error(e.message) }
+  }
+  const sorted = [...(peserta || [])].sort((a, b) => String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
   return (
     <div>
-      <PageHeader title="Daftar Peserta" desc={lomba ? lomba.name : ''} />
+      <PageHeader title="Daftar Peserta" desc={lomba ? `${lomba.name} — klik kolom No. Urut untuk mengubah urutan tampil` : ''} />
       <Card>
-        {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : peserta.length === 0 ? <Empty /> : (
+        {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : sorted.length === 0 ? <Empty /> : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>No. Peserta</TableHead>
+                <TableHead>No. Urut</TableHead>
                 <TableHead>Nama</TableHead>
                 <TableHead>Madrasah</TableHead>
                 <TableHead>Berkas</TableHead>
@@ -76,9 +99,9 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {peserta.map((p) => (
+              {sorted.map((p) => (
                 <TableRow key={p.id}>
-                  <TableCell className="font-mono">{p.nomor_peserta}</TableCell>
+                  <TableCell><NomorCell p={p} onSave={setNomor} /></TableCell>
                   <TableCell className="font-medium">{p.participant_name}</TableCell>
                   <TableCell>{p.madrasah_name}</TableCell>
                   <TableCell>
@@ -100,6 +123,27 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
           </Table>
         )}
       </Card>
+    </div>
+  )
+}
+
+function IdCardCetak({ lomba, peserta, loading }) {
+  const targets = (peserta || []).map((p) => ({
+    label: `${p.nomor_peserta} - ${p.participant_name}`,
+    filename: `IDCard_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
+    values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: p.lomba_name, nomor_peserta: 'No. ' + p.nomor_peserta, photo: p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null },
+  }))
+  return (
+    <div>
+      <PageHeader title="ID Card Peserta" desc={lomba ? `${lomba.name} — cetak/unduh ID Card seluruh peserta` : ''} />
+      <TemplateStudio
+        readOnly
+        type="idcard_peserta"
+        defaultFields={IDCARD_PESERTA_FIELDS}
+        targets={targets}
+        loadingTargets={loading}
+        sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', nomor_peserta: 'No. 001' }}
+      />
     </div>
   )
 }
@@ -126,7 +170,7 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
       <div style={{ textAlign: 'center', fontSize: 14, marginTop: 4, fontWeight: 600 }}>{mode === 'absensi' ? 'DAFTAR HADIR PESERTA' : 'LEMBAR PENILAIAN'} — {lomba?.name || '-'}{genderLabel}</div>
     </div>
   )
-  const Sign = (label) => (
+  const signArea = (label) => (
     <div className="print-sign" style={{ marginTop: 56, display: 'flex', justifyContent: 'flex-end' }}>
       <div style={{ textAlign: 'center', fontSize: 13 }}>
         <div>Plosoklaten, .............................</div>
@@ -160,7 +204,7 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
           </tbody>
         </table>
       )}
-      {Sign(mode === 'absensi' ? 'Panitia / Juri' : 'Juri Lomba')}
+      {signArea(mode === 'absensi' ? 'Panitia / Juri' : 'Juri Lomba')}
     </div>
   )
 

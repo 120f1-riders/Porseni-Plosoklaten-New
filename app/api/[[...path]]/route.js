@@ -158,6 +158,27 @@ async function handleRoute(request, { params }) {
       return json(clean(u))
     }
 
+    // ---------- PROFILE (self service) ----------
+    if (route === '/auth/profile' && method === 'GET') {
+      const u = await getUser(request)
+      if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
+      const { _id, password, token, ...rest } = u
+      return json(rest) // includes password_plain, photo_url, assigned_lomba_id
+    }
+    if (route === '/auth/profile' && method === 'PUT') {
+      const u = await getUser(request)
+      if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
+      const b = await request.json()
+      const set = {}
+      if (b.name !== undefined) set.name = b.name
+      if (b.photo_url !== undefined) set.photo_url = b.photo_url
+      if (b.password) { set.password = hashPw(String(b.password)); set.password_plain = String(b.password) }
+      await db.collection('users').updateOne({ id: u.id }, { $set: set })
+      const doc = await db.collection('users').findOne({ id: u.id })
+      const { _id, password, token, ...rest } = doc
+      return json(rest)
+    }
+
     // ---------- FORGOT PASSWORD (public) -> notify super admin ----------
     if (route === '/auth/forgot' && method === 'POST') {
       const b = await request.json()
@@ -179,7 +200,7 @@ async function handleRoute(request, { params }) {
       const u = await getUser(request)
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
-      const doc = { id: uuidv4(), name: b.name, category: b.category || 'Olahraga', type: b.type || 'individu', judging_criteria: b.judging_criteria || [], created_at: new Date() }
+      const doc = { id: uuidv4(), name: b.name, category: b.category || 'Olahraga', type: b.type || 'individu', team_size: b.team_size ? Number(b.team_size) : null, judging_criteria: b.judging_criteria || [], created_at: new Date() }
       await db.collection('lomba').insertOne(doc)
       return json(clean(doc))
     }
@@ -188,7 +209,7 @@ async function handleRoute(request, { params }) {
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
       const set = {}
-      ;['name', 'category', 'type', 'judging_criteria'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      ;['name', 'category', 'type', 'team_size', 'judging_criteria'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
       await db.collection('lomba').updateOne({ id: p[1] }, { $set: set })
       const doc = await db.collection('lomba').findOne({ id: p[1] })
       return json(clean(doc))
@@ -268,6 +289,47 @@ async function handleRoute(request, { params }) {
       await db.collection('peserta').insertOne(doc)
       return json(clean(doc))
     }
+    // ---------- PESERTA TEAM (kelompok) ----------
+    if (route === '/peserta/team' && method === 'POST') {
+      const u = await getUser(request)
+      if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
+      const b = await request.json()
+      const lomba = await db.collection('lomba').findOne({ id: b.lomba_id })
+      const madrasah = b.madrasah_name || u.madrasah_name || '-'
+      const members = Array.isArray(b.members) ? b.members.filter((m) => m && m.participant_name) : []
+      if (members.length === 0) return json({ error: 'Minimal satu anggota tim wajib diisi' }, 400)
+      const team_id = uuidv4()
+      const team_name = b.team_name || `${lomba ? lomba.name : 'Tim'} - ${madrasah}`
+      let count = await db.collection('peserta').countDocuments({ lomba_id: b.lomba_id })
+      const created = []
+      for (const m of members) {
+        count += 1
+        const nomor = String(count).padStart(3, '0')
+        const doc = {
+          id: uuidv4(),
+          participant_name: m.participant_name,
+          gender: m.gender === 'P' ? 'P' : (m.gender === 'L' ? 'L' : ''),
+          nisn: m.nisn || '',
+          ttl: m.ttl || '',
+          madrasah_name: madrasah,
+          lomba_id: b.lomba_id,
+          lomba_name: lomba ? lomba.name : '',
+          nomor_peserta: nomor,
+          status: 'pending',
+          files: m.files || {},
+          is_group: true,
+          team_id,
+          team_name,
+          drive_path: `${lomba ? lomba.name : 'Lomba'}/${madrasah}/${team_name}/${m.participant_name}`,
+          created_by: u.id,
+          created_at: new Date(),
+        }
+        doc.complete = computeComplete(doc)
+        await db.collection('peserta').insertOne(doc)
+        created.push(clean(doc))
+      }
+      return json({ team_id, team_name, count: created.length, members: created })
+    }
     if (p[0] === 'peserta' && p[1] && p[2] === 'status' && method === 'PUT') {
       const u = await getUser(request)
       if (!u) return json({ error: 'Akses ditolak' }, 403)
@@ -281,7 +343,7 @@ async function handleRoute(request, { params }) {
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
       const b = await request.json()
       const set = {}
-      ;['participant_name', 'gender', 'nisn', 'ttl', 'madrasah_name', 'lomba_id', 'files', 'status'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      ;['participant_name', 'gender', 'nisn', 'ttl', 'madrasah_name', 'lomba_id', 'files', 'status', 'nomor_peserta'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
       if (b.lomba_id !== undefined) {
         const lomba = await db.collection('lomba').findOne({ id: b.lomba_id })
         set.lomba_name = lomba ? lomba.name : ''

@@ -17,15 +17,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
-import OverlayEditor from '@/components/porseni/OverlayEditor'
-import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, ROLE_LABEL, CERT_DEFAULT_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
+import TemplateStudio from '@/components/porseni/TemplateStudio'
+import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, GENDERS, ROLE_LABEL, CERT_DEFAULT_FIELDS, CERT_PANITIA_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
-import { renderOverlay, downloadDataUrl } from '@/lib/porseni/canvasgen'
 
 export default function SuperAdmin({ view }) {
   if (view === 'lomba') return <ManajemenLomba />
   if (view === 'pengguna') return <ManajemenPengguna />
   if (view === 'pendaftar') return <DataPendaftar />
+  if (view === 'cetak') return <CetakAdmin />
   if (view === 'sertifikat') return <Sertifikat />
   if (view === 'idcard') return <IdCardManager />
   return <Dashboard />
@@ -114,12 +114,12 @@ function ManajemenLomba() {
   const load = async () => { setLoading(true); try { setList(await api('/lomba')) } catch (e) { toast.error(e.message) } finally { setLoading(false) } }
   useEffect(() => { load() }, [])
 
-  const openNew = () => { setEdit(null); setForm({ name: '', category: 'Olahraga', type: 'individu', criteria: '' }); setOpen(true) }
-  const openEdit = (l) => { setEdit(l); setForm({ name: l.name, category: l.category, type: l.type || 'individu', criteria: (l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') }); setOpen(true) }
+  const openNew = () => { setEdit(null); setForm({ name: '', category: 'Olahraga', type: 'individu', team_size: '', criteria: '' }); setOpen(true) }
+  const openEdit = (l) => { setEdit(l); setForm({ name: l.name, category: l.category, type: l.type || 'individu', team_size: l.team_size || '', criteria: (l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') }); setOpen(true) }
 
   const save = async () => {
     if (!form.name) return toast.error('Nama lomba wajib diisi')
-    const body = { name: form.name, category: form.category, type: form.type, judging_criteria: form.criteria.split(',').map((s) => s.trim()).filter(Boolean) }
+    const body = { name: form.name, category: form.category, type: form.type, team_size: form.type === 'kelompok' ? (Number(form.team_size) || null) : null, judging_criteria: form.criteria.split(',').map((s) => s.trim()).filter(Boolean) }
     try {
       if (edit) await api(`/lomba/${edit.id}`, { method: 'PUT', body })
       else await api('/lomba', { method: 'POST', body })
@@ -175,6 +175,13 @@ function ManajemenLomba() {
               </Select>
               <p className="text-xs text-muted-foreground">Kelompok: juara ditetapkan per Madrasah, sertifikat dapat dicetak untuk seluruh anggota regu.</p>
             </div>
+            {form.type === 'kelompok' && (
+              <div className="space-y-1.5">
+                <Label>Jumlah Anggota per Tim</Label>
+                <Input type="number" min={1} value={form.team_size} onChange={(e) => setForm({ ...form, team_size: e.target.value })} placeholder="Contoh: Voli = 6, Futsal = 10" />
+                <p className="text-xs text-muted-foreground">Digunakan untuk formulir pendaftaran satu tim oleh Admin Madrasah.</p>
+              </div>
+            )}
             <div className="space-y-1.5"><Label>Kriteria Penilaian (pisahkan dengan koma)</Label><Textarea value={form.criteria} onChange={(e) => setForm({ ...form, criteria: e.target.value })} placeholder="Kerapian, Keindahan, Ketepatan" /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Batal</Button><Button onClick={save}>Simpan</Button></DialogFooter>
@@ -463,107 +470,171 @@ function DataPendaftar() {
   )
 }
 
-/* ---------------- TEMPLATE STUDIO (reusable) ---------------- */
-function TemplateStudio({ type, defaultFields, targets, loadingTargets, sample }) {
-  const [imageUrl, setImageUrl] = useState(null)
-  const [fields, setFields] = useState(defaultFields)
-  const [loaded, setLoaded] = useState(false)
-  const [uploading, setUploading] = useState(false)
-  const [saving, setSaving] = useState(false)
-  const [generating, setGenerating] = useState(false)
-  const ref = useRef(null)
+/* ---------------- CETAK ADMINISTRASI (Super Admin) ---------------- */
+function CetakAdmin() {
+  const [peserta, setPeserta] = useState([])
+  const [lomba, setLomba] = useState([])
+  const [kopSurat, setKopSurat] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [mode, setMode] = useState('absensi')
+  const [lombaFilter, setLombaFilter] = useState('')
+  const [gender, setGender] = useState('all')
 
   useEffect(() => {
     (async () => {
       try {
-        const list = await api(`/templates?type=${type}`)
-        if (list[0]) { setImageUrl(list[0].image_url); if (list[0].fields?.length) setFields(list[0].fields) }
-      } catch (e) { /* ignore */ } finally { setLoaded(true) }
+        const [p, l, tpl] = await Promise.all([api('/peserta'), api('/lomba'), api('/templates?type=kopsurat').catch(() => [])])
+        setPeserta(p || []); setLomba(l || [])
+        setKopSurat(tpl && tpl[0] && tpl[0].image_url ? tpl[0].image_url : null)
+        if (l && l[0]) setLombaFilter(l[0].id)
+      } catch (e) { toast.error(e.message) } finally { setLoading(false) }
     })()
-  }, [type])
+  }, [])
 
-  const upload = async (e) => {
-    const file = e.target.files?.[0]; if (!file) return
-    setUploading(true)
-    try { const res = await uploadFile(file); setImageUrl(fileUrl(res.id)); toast.success('Template diunggah') }
-    catch (err) { toast.error(err.message) } finally { setUploading(false) }
-  }
-  const save = async () => {
-    if (!imageUrl) return toast.error('Unggah template terlebih dahulu')
-    setSaving(true)
-    try { await api('/templates', { method: 'POST', body: { type, image_url: imageUrl, fields } }); toast.success('Template tersimpan') }
-    catch (e) { toast.error(e.message) } finally { setSaving(false) }
-  }
-  const generateAll = async () => {
-    if (!imageUrl) return toast.error('Unggah template terlebih dahulu')
-    if (!targets.length) return toast.error('Belum ada data untuk digenerate')
-    setGenerating(true)
-    try {
-      for (const t of targets) {
-        const dataUrl = await renderOverlay({ templateSrc: imageUrl, fields, values: t.values })
-        downloadDataUrl(dataUrl, t.filename)
-        await new Promise((r) => setTimeout(r, 250))
-      }
-      toast.success(`${targets.length} file berhasil digenerate`)
-    } catch (e) { toast.error('Gagal generate: ' + e.message) } finally { setGenerating(false) }
-  }
-  const generateOne = async (t) => {
-    try { const dataUrl = await renderOverlay({ templateSrc: imageUrl, fields, values: t.values }); downloadDataUrl(dataUrl, t.filename) }
-    catch (e) { toast.error(e.message) }
-  }
+  const selectedLomba = lomba.find((l) => l.id === lombaFilter)
+  const crit = (selectedLomba?.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name))
+  const critList = crit.length ? crit : ['Kriteria 1', 'Kriteria 2']
 
-  if (!loaded) return <Loader2 className="h-6 w-6 animate-spin text-primary" />
+  const rows = peserta
+    .filter((p) => (lombaFilter ? p.lomba_id === lombaFilter : true))
+    .filter((p) => (gender === 'all' ? true : p.gender === gender))
+    .sort((a, b) => String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
+
+  const doPrint = (m) => { setMode(m); setTimeout(() => window.print(), 150) }
+  const genderLabel = gender === 'L' ? ' (Putra)' : gender === 'P' ? ' (Putri)' : ''
+
+  const Header = (
+    <div style={{ borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
+      {kopSurat
+        ? <img src={kopSurat} alt="Kop Surat" style={{ width: '100%', maxHeight: 130, objectFit: 'contain', marginBottom: 8 }} />
+        : (
+          <div style={{ textAlign: 'center' }}>
+            <div style={{ fontSize: 18, fontWeight: 700 }}>PEKAN OLAHRAGA DAN SENI (PORSENI)</div>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>MADRASAH IBTIDAIYYAH KECAMATAN PLOSOKLATEN</div>
+          </div>
+        )}
+      <div style={{ textAlign: 'center', fontSize: 14, marginTop: 4, fontWeight: 600 }}>{mode === 'absensi' ? 'DAFTAR HADIR PESERTA' : 'LEMBAR PENILAIAN'} — {selectedLomba?.name || 'Semua Lomba'}{genderLabel}</div>
+    </div>
+  )
+  const signArea = (label) => (
+    <div className="print-sign" style={{ marginTop: 56, display: 'flex', justifyContent: 'flex-end' }}>
+      <div style={{ textAlign: 'center', fontSize: 13 }}>
+        <div>Plosoklaten, .............................</div>
+        <div style={{ marginTop: 4 }}>{label}</div>
+        <div style={{ marginTop: 64 }}>( ................................. )</div>
+      </div>
+    </div>
+  )
+
+  const Sheet = (
+    <div className="sheet">
+      {Header}
+      {mode === 'absensi' ? (
+        <table className="print-table">
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>L/P</th><th>Madrasah</th>{!lombaFilter && <th>Cabang Lomba</th>}<th style={{ width: '22%' }}>Tanda Tangan</th></tr></thead>
+          <tbody>
+            {rows.map((p, i) => (
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td>{!lombaFilter && <td>{p.lomba_name}</td>}<td style={{ height: 34 }}></td></tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={lombaFilter ? 6 : 7} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+          </tbody>
+        </table>
+      ) : (
+        <table className="print-table">
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>L/P</th>{critList.map((c, i) => <th key={i}>{c}</th>)}<th>Total</th></tr></thead>
+          <tbody>
+            {rows.map((p, i) => (
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td>{critList.map((_, j) => <td key={j} style={{ height: 34 }}></td>)}<td></td></tr>
+            ))}
+            {rows.length === 0 && <tr><td colSpan={critList.length + 5} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+          </tbody>
+        </table>
+      )}
+      {signArea(mode === 'absensi' ? 'Panitia / Juri' : 'Juri Lomba')}
+    </div>
+  )
 
   return (
-    <div className="space-y-6">
-      <Card className="p-6">
-        <div className="flex flex-wrap items-center gap-3 mb-4">
-          <input ref={ref} type="file" accept="image/*" className="hidden" onChange={upload} />
-          <Button variant="secondary" disabled={uploading} onClick={() => ref.current?.click()}>
-            {uploading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}
-            {imageUrl ? 'Ganti Template' : 'Unggah Template (Gambar)'}
-          </Button>
-          {imageUrl && <Button onClick={save} disabled={saving}>{saving ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : null}Simpan Tata Letak</Button>}
-        </div>
-        {imageUrl ? (
-          <OverlayEditor templateSrc={imageUrl} fields={fields} onChange={setFields} sampleValues={sample} />
-        ) : (
-          <div className="border-2 border-dashed rounded-lg py-16 text-center text-muted-foreground">
-            <ImageIcon className="h-10 w-10 mx-auto mb-3 opacity-50" />
-            Unggah gambar template (JPG/PNG) untuk mulai menata teks.
-          </div>
-        )}
-      </Card>
-
-      <Card className="p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="font-semibold">Generate ({targets.length})</h3>
-            <p className="text-sm text-muted-foreground">Hasil diunduh sebagai gambar PNG siap cetak.</p>
-          </div>
-          <Button onClick={generateAll} disabled={generating || !imageUrl || !targets.length}>
-            {generating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}Unduh Semua
-          </Button>
-        </div>
-        {loadingTargets ? <Loader2 className="h-5 w-5 animate-spin text-primary" /> : targets.length === 0 ? <Empty text="Belum ada data." /> : (
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {targets.map((t, i) => (
-              <div key={i} className="flex items-center justify-between border rounded-lg px-3 py-2 text-sm">
-                <span className="truncate">{t.label}</span>
-                <Button size="icon" variant="ghost" disabled={!imageUrl} onClick={() => generateOne(t)}><Download className="h-4 w-4" /></Button>
+    <div>
+      <div className="screen-only">
+        <PageHeader title="Cetak Administrasi" desc="Cetak daftar hadir & lembar penilaian per cabang lomba">
+          <Button variant={mode === 'absensi' ? 'default' : 'outline'} onClick={() => setMode('absensi')}><Printer className="h-4 w-4 mr-1" />Absensi</Button>
+          <Button variant={mode === 'penilaian' ? 'default' : 'outline'} onClick={() => setMode('penilaian')}><Printer className="h-4 w-4 mr-1" />Penilaian</Button>
+        </PageHeader>
+        {loading ? <Loader2 className="h-6 w-6 animate-spin text-primary" /> : (
+          <>
+            <Card className="p-4 mb-4 flex flex-wrap items-center gap-3">
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Cabang Lomba:</span>
+                <Select value={lombaFilter || 'all'} onValueChange={(v) => setLombaFilter(v === 'all' ? '' : v)}>
+                  <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua Lomba</SelectItem>
+                    {lomba.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+                  </SelectContent>
+                </Select>
               </div>
-            ))}
-          </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-muted-foreground">Jenis Kelamin:</span>
+                <Select value={gender} onValueChange={setGender}>
+                  <SelectTrigger className="w-40"><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">Semua</SelectItem>
+                    {GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}
+                  </SelectContent>
+                </Select>
+              </div>
+              <span className="text-xs text-muted-foreground">{rows.length} peserta</span>
+            </Card>
+            <div className="flex gap-2 mb-4">
+              <Button onClick={() => doPrint('absensi')}><Printer className="h-4 w-4 mr-2" />Cetak Absensi</Button>
+              <Button onClick={() => doPrint('penilaian')}><Printer className="h-4 w-4 mr-2" />Cetak Lembar Penilaian</Button>
+            </div>
+            <Card className="p-2 shadow-inner bg-muted/40">
+              <div className="mx-auto max-w-3xl border shadow bg-white">{Sheet}</div>
+            </Card>
+          </>
         )}
-      </Card>
+      </div>
+      <div className="print-only">{Sheet}</div>
     </div>
   )
 }
 
 /* ---------------- SERTIFIKAT ---------------- */
 function Sertifikat() {
+  const [tab, setTab] = useState('juara')
+  return (
+    <div>
+      <PageHeader title="Manajemen Sertifikat" desc="Unggah template, atur posisi teks & foto, lalu generate sertifikat" />
+      <div className="flex gap-2 mb-6">
+        <Button variant={tab === 'juara' ? 'default' : 'outline'} onClick={() => setTab('juara')}><Award className="h-4 w-4 mr-1" />Sertifikat Juara</Button>
+        <Button variant={tab === 'panitia' ? 'default' : 'outline'} onClick={() => setTab('panitia')}><Award className="h-4 w-4 mr-1" />Sertifikat Panitia</Button>
+      </div>
+      {tab === 'juara' ? <SertifikatJuara /> : <SertifikatPanitia />}
+    </div>
+  )
+}
+
+function LombaFilterBar({ lomba, value, onChange }) {
+  return (
+    <Card className="p-4 mb-4 flex flex-wrap items-center gap-3">
+      <span className="text-sm text-muted-foreground">Filter Cabang Lomba:</span>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger className="w-56"><SelectValue /></SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Semua Lomba</SelectItem>
+          {lomba.map((l) => <SelectItem key={l.id} value={l.id}>{l.name}</SelectItem>)}
+        </SelectContent>
+      </Select>
+    </Card>
+  )
+}
+
+function SertifikatJuara() {
   const [raw, setRaw] = useState({ loading: true, juara: [], peserta: [], lomba: [] })
   const [groupMode, setGroupMode] = useState('peserta') // 'peserta' | 'regu'
+  const [lombaFilter, setLombaFilter] = useState('all')
 
   useEffect(() => {
     (async () => {
@@ -575,15 +646,18 @@ function Sertifikat() {
   }, [])
 
   const lm = Object.fromEntries((raw.lomba || []).map((l) => [l.id, l.name]))
+  const pesertaById = Object.fromEntries((raw.peserta || []).map((p) => [p.id, p]))
+  const photoOf = (p) => (p && p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null)
+  const juaraFiltered = (raw.juara || []).filter((j) => (lombaFilter === 'all' ? true : j.lomba_id === lombaFilter))
   const targets = []
-  for (const j of raw.juara || []) {
+  for (const j of juaraFiltered) {
     const lombaName = lm[j.lomba_id] || ''
     if (j.is_group) {
       if (groupMode === 'regu') {
         targets.push({
           label: `${j.rank} - ${j.madrasah_name} (Regu)`,
           filename: `Sertifikat_${j.rank}_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
-          values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank },
+          values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: null },
         })
       } else {
         const members = (raw.peserta || []).filter((p) => p.lomba_id === j.lomba_id && p.madrasah_name === j.madrasah_name)
@@ -591,29 +665,30 @@ function Sertifikat() {
           targets.push({
             label: `${j.rank} - ${j.madrasah_name} (tidak ada anggota)`,
             filename: `Sertifikat_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
-            values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank },
+            values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: null },
           })
         }
         members.forEach((p) => targets.push({
           label: `${j.rank} - ${p.participant_name} (${j.madrasah_name})`,
           filename: `Sertifikat_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
-          values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: lombaName, rank: j.rank },
+          values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: photoOf(p) },
         }))
       }
     } else {
+      const p = pesertaById[j.peserta_id]
       targets.push({
         label: `${j.rank} - ${j.participant_name}`,
         filename: `Sertifikat_${(j.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
-        values: { participant_name: j.participant_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank },
+        values: { participant_name: j.participant_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: photoOf(p) },
       })
     }
   }
 
-  const hasGroup = (raw.juara || []).some((j) => j.is_group)
+  const hasGroup = juaraFiltered.some((j) => j.is_group)
 
   return (
     <div>
-      <PageHeader title="Manajemen Sertifikat" desc="Unggah template, atur posisi teks, lalu generate sertifikat untuk seluruh juara" />
+      <LombaFilterBar lomba={raw.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
       {hasGroup && (
         <Card className="p-4 mb-6 flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium">Mode Sertifikat Kelompok:</span>
@@ -627,6 +702,40 @@ function Sertifikat() {
         targets={targets}
         loadingTargets={raw.loading}
         sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', rank: 'Juara 1' }}
+      />
+    </div>
+  )
+}
+
+function SertifikatPanitia() {
+  const [state, setState] = useState({ loading: true, users: [], lomba: [] })
+  const [lombaFilter, setLombaFilter] = useState('all')
+  useEffect(() => {
+    (async () => {
+      try {
+        const [users, lomba] = await Promise.all([api('/users'), api('/lomba')])
+        setState({ loading: false, users: users || [], lomba: lomba || [] })
+      } catch (e) { toast.error(e.message); setState({ loading: false, users: [], lomba: [] }) }
+    })()
+  }, [])
+  const lm = Object.fromEntries((state.lomba || []).map((l) => [l.id, l.name]))
+  const targets = (state.users || [])
+    .filter((u) => u.role === 'panitia')
+    .filter((u) => (lombaFilter === 'all' ? true : u.assigned_lomba_id === lombaFilter))
+    .map((u) => ({
+      label: `${u.name} — ${lm[u.assigned_lomba_id] || '-'}`,
+      filename: `Sertifikat_Panitia_${(u.name || 'panitia').replace(/\s+/g, '_')}.png`,
+      values: { name: u.name, role_label: 'Panitia / Juri', lomba_name: lm[u.assigned_lomba_id] || '-', photo: u.photo_url || null },
+    }))
+  return (
+    <div>
+      <LombaFilterBar lomba={state.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
+      <TemplateStudio
+        type="certificate_panitia"
+        defaultFields={CERT_PANITIA_FIELDS}
+        targets={targets}
+        loadingTargets={state.loading}
+        sample={{ name: 'Budi Santoso', role_label: 'Panitia / Juri', lomba_name: 'Futsal' }}
       />
     </div>
   )
@@ -648,44 +757,57 @@ function IdCardManager() {
 }
 
 function IdCardPeserta() {
-  const [state, setState] = useState({ loading: true, targets: [] })
+  const [state, setState] = useState({ loading: true, peserta: [], lomba: [] })
+  const [lombaFilter, setLombaFilter] = useState('all')
   useEffect(() => {
     (async () => {
       try {
-        const peserta = await api('/peserta')
-        const targets = peserta.map((p) => ({
-          label: `${p.nomor_peserta} - ${p.participant_name}`,
-          filename: `IDCard_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
-          values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: p.lomba_name, nomor_peserta: 'No. ' + p.nomor_peserta, photo: p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null },
-        }))
-        setState({ loading: false, targets })
-      } catch (e) { toast.error(e.message); setState({ loading: false, targets: [] }) }
+        const [peserta, lomba] = await Promise.all([api('/peserta'), api('/lomba')])
+        setState({ loading: false, peserta: peserta || [], lomba: lomba || [] })
+      } catch (e) { toast.error(e.message); setState({ loading: false, peserta: [], lomba: [] }) }
     })()
   }, [])
+  const targets = (state.peserta || [])
+    .filter((p) => (lombaFilter === 'all' ? true : p.lomba_id === lombaFilter))
+    .map((p) => ({
+      label: `${p.nomor_peserta} - ${p.participant_name}`,
+      filename: `IDCard_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
+      values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: p.lomba_name, nomor_peserta: 'No. ' + p.nomor_peserta, photo: p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null },
+    }))
   return (
-    <TemplateStudio type="idcard_peserta" defaultFields={IDCARD_PESERTA_FIELDS} targets={state.targets} loadingTargets={state.loading}
-      sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', nomor_peserta: 'No. 001' }} />
+    <div>
+      <LombaFilterBar lomba={state.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
+      <TemplateStudio type="idcard_peserta" defaultFields={IDCARD_PESERTA_FIELDS} targets={targets} loadingTargets={state.loading}
+        sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', nomor_peserta: 'No. 001' }} />
+    </div>
   )
 }
 
 function IdCardPanitia() {
-  const [state, setState] = useState({ loading: true, targets: [] })
+  const [state, setState] = useState({ loading: true, users: [], lomba: [] })
+  const [lombaFilter, setLombaFilter] = useState('all')
   useEffect(() => {
     (async () => {
       try {
         const [users, lomba] = await Promise.all([api('/users'), api('/lomba')])
-        const lm = Object.fromEntries(lomba.map((l) => [l.id, l.name]))
-        const targets = users.filter((u) => u.role === 'panitia').map((u) => ({
-          label: u.name,
-          filename: `IDCard_Panitia_${u.name.replace(/\s+/g, '_')}.png`,
-          values: { name: u.name, role_label: 'Panitia / Juri', lomba_name: lm[u.assigned_lomba_id] || '-', photo: null },
-        }))
-        setState({ loading: false, targets })
-      } catch (e) { toast.error(e.message); setState({ loading: false, targets: [] }) }
+        setState({ loading: false, users: users || [], lomba: lomba || [] })
+      } catch (e) { toast.error(e.message); setState({ loading: false, users: [], lomba: [] }) }
     })()
   }, [])
+  const lm = Object.fromEntries((state.lomba || []).map((l) => [l.id, l.name]))
+  const targets = (state.users || [])
+    .filter((u) => u.role === 'panitia')
+    .filter((u) => (lombaFilter === 'all' ? true : u.assigned_lomba_id === lombaFilter))
+    .map((u) => ({
+      label: `${u.name} — ${lm[u.assigned_lomba_id] || '-'}`,
+      filename: `IDCard_Panitia_${(u.name || 'panitia').replace(/\s+/g, '_')}.png`,
+      values: { name: u.name, role_label: 'Panitia / Juri', lomba_name: lm[u.assigned_lomba_id] || '-', photo: u.photo_url || null },
+    }))
   return (
-    <TemplateStudio type="idcard_panitia" defaultFields={IDCARD_PANITIA_FIELDS} targets={state.targets} loadingTargets={state.loading}
-      sample={{ name: 'Budi Santoso', role_label: 'Panitia / Juri', lomba_name: 'Futsal' }} />
+    <div>
+      <LombaFilterBar lomba={state.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
+      <TemplateStudio type="idcard_panitia" defaultFields={IDCARD_PANITIA_FIELDS} targets={targets} loadingTargets={state.loading}
+        sample={{ name: 'Budi Santoso', role_label: 'Panitia / Juri', lomba_name: 'Futsal' }} />
+    </div>
   )
 }

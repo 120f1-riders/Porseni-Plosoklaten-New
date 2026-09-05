@@ -1,886 +1,711 @@
 #!/usr/bin/env python3
 """
-Backend API Test for SIM Porseni MI - Testing Recent Changes
-Focus: Lomba type field, Peserta gender+complete, Panitia visibility, Juara group support
+Backend API Tests for SIM Porseni FASE 1
+Tests: Profile self-service, Lomba team_size, Peserta nomor_peserta manual edit, Team registration
 """
-
 import requests
 import json
-from datetime import datetime
+import sys
 
-# Base URL
-BASE_URL = "https://event-checklist-5.preview.emergentagent.com/api"
+# Base URL from .env NEXT_PUBLIC_BASE_URL
+BASE_URL = "https://b0710da5-c194-45c3-af2f-8597520ec3c3.preview.emergentagent.com/api"
 
-# Test data storage
-test_data = {
-    'super_admin': {'email': 'super@porseni.id', 'password': 'admin123'},
-    'admin_madrasah': {},
-    'panitia': {},
-    'lomba_individu': {},
-    'lomba_kelompok': {},
-    'peserta_incomplete': {},
-    'peserta_complete': {},
-    'peserta_no_gender': {},
-    'files': {}
-}
+# Seed accounts
+SUPER_ADMIN = {"email": "super@porseni.id", "password": "admin123"}
+ADMIN_MADRASAH = {"email": "admin.mi@porseni.id", "password": "admin123"}
+PANITIA = {"email": "panitia@porseni.id", "password": "admin123"}
 
-def log(msg):
-    print(f"[{datetime.now().strftime('%H:%M:%S')}] {msg}")
+# Test results tracking
+test_results = []
 
-def test_super_admin_login():
-    """Test: Login as seeded super admin"""
-    log("TEST: Login super admin (super@porseni.id)")
+def log_test(name, passed, message=""):
+    """Log test result"""
+    status = "✅ PASS" if passed else "❌ FAIL"
+    result = f"{status}: {name}"
+    if message:
+        result += f" - {message}"
+    print(result)
+    test_results.append({"name": name, "passed": passed, "message": message})
+    return passed
+
+def login(email, password):
+    """Login and return token"""
     try:
-        payload = {
-            "email": test_data['super_admin']['email'],
-            "password": test_data['super_admin']['password']
-        }
-        resp = requests.post(f"{BASE_URL}/auth/login", json=payload, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        
-        if resp.status_code == 401:
-            # Try to register if login fails
-            log("  Login failed, attempting to register super_admin...")
-            reg_payload = {
-                "name": "Super Admin",
-                "email": test_data['super_admin']['email'],
-                "password": test_data['super_admin']['password'],
-                "role": "super_admin"
-            }
-            resp = requests.post(f"{BASE_URL}/auth/register", json=reg_payload, timeout=10)
-            log(f"  Register status: {resp.status_code}")
+        resp = requests.post(f"{BASE_URL}/auth/login", json={"email": email, "password": password}, timeout=10)
+        if resp.status_code == 200:
             data = resp.json()
-            if resp.status_code != 200 or 'token' not in data:
-                log(f"  ❌ FAILED: Cannot register super_admin: {data}")
-                return False
-            test_data['super_admin']['token'] = data['token']
-            log(f"  ✅ Super admin registered and logged in")
-            return True
-        
-        data = resp.json()
-        if resp.status_code != 200 or 'token' not in data:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        test_data['super_admin']['token'] = data['token']
-        log(f"  ✅ PASSED: Super admin logged in")
-        return True
+            return data.get("token")
+        else:
+            print(f"Login failed for {email}: {resp.status_code} {resp.text}")
+            return None
     except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
+        print(f"Login exception for {email}: {e}")
+        return None
 
-# ============================================================================
-# LOMBA TYPE FIELD TESTS
-# ============================================================================
-
-def test_lomba_create_with_type_individu():
-    """Test: POST /lomba with type:'individu'"""
-    log("TEST: Create lomba with type='individu'")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        payload = {
-            "name": "Kaligrafi",
-            "category": "Seni",
-            "type": "individu",
-            "judging_criteria": ["Kerapian", "Keindahan"]
-        }
-        resp = requests.post(f"{BASE_URL}/lomba", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('type') != 'individu':
-            log(f"  ❌ FAILED: Expected type='individu', got '{data.get('type')}'")
-            return False
-        
-        test_data['lomba_individu'] = data
-        log(f"  ✅ PASSED: Lomba created with type='individu', id={data['id']}")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_lomba_create_with_type_kelompok():
-    """Test: POST /lomba with type:'kelompok'"""
-    log("TEST: Create lomba with type='kelompok'")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        payload = {
-            "name": "Cerdas Cermat",
-            "category": "Seni",
-            "type": "kelompok"
-        }
-        resp = requests.post(f"{BASE_URL}/lomba", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('type') != 'kelompok':
-            log(f"  ❌ FAILED: Expected type='kelompok', got '{data.get('type')}'")
-            return False
-        
-        test_data['lomba_kelompok'] = data
-        log(f"  ✅ PASSED: Lomba created with type='kelompok', id={data['id']}")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_lomba_create_without_type():
-    """Test: POST /lomba WITHOUT type (should default to 'individu')"""
-    log("TEST: Create lomba WITHOUT type (default to 'individu')")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        payload = {
-            "name": "Lomba Default Type",
-            "category": "Olahraga"
-        }
-        resp = requests.post(f"{BASE_URL}/lomba", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('type') != 'individu':
-            log(f"  ❌ FAILED: Expected default type='individu', got '{data.get('type')}'")
-            return False
-        
-        log(f"  ✅ PASSED: Lomba defaults to type='individu'")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_lomba_update_type():
-    """Test: PUT /lomba/:id changing type from individu to kelompok"""
-    log("TEST: Update lomba type from 'individu' to 'kelompok'")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        lomba_id = test_data['lomba_individu']['id']
-        payload = {"type": "kelompok"}
-        resp = requests.put(f"{BASE_URL}/lomba/{lomba_id}", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('type') != 'kelompok':
-            log(f"  ❌ FAILED: Type not updated, got '{data.get('type')}'")
-            return False
-        
-        # Revert back to individu for later tests
-        payload2 = {"type": "individu"}
-        resp2 = requests.put(f"{BASE_URL}/lomba/{lomba_id}", json=payload2, headers=headers, timeout=10)
-        
-        log(f"  ✅ PASSED: Lomba type updated successfully")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_lomba_get_returns_type():
-    """Test: GET /lomba returns type field on each lomba"""
-    log("TEST: GET /lomba returns type field")
+def get_lomba_by_name(name):
+    """Get lomba by name"""
     try:
         resp = requests.get(f"{BASE_URL}/lomba", timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if not isinstance(data, list) or len(data) == 0:
-            log(f"  ❌ FAILED: Expected non-empty array")
-            return False
-        
-        for lomba in data:
-            if 'type' not in lomba:
-                log(f"  ❌ FAILED: Lomba missing 'type' field: {lomba}")
-                return False
-        
-        log(f"  ✅ PASSED: All lomba have type field ({len(data)} lomba)")
-        return True
+        if resp.status_code == 200:
+            lomba_list = resp.json()
+            for lomba in lomba_list:
+                if lomba.get("name") == name:
+                    return lomba
+        return None
     except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
+        print(f"Get lomba exception: {e}")
+        return None
+
+print("=" * 80)
+print("BACKEND API TESTS - SIM Porseni FASE 1")
+print("=" * 80)
 
 # ============================================================================
-# PESERTA GENDER + COMPLETE FLAG TESTS
+# TEST 1: Profile self-service - GET /auth/profile
 # ============================================================================
+print("\n" + "=" * 80)
+print("TEST 1: Profile self-service - GET /auth/profile")
+print("=" * 80)
 
-def test_create_admin_madrasah():
-    """Test: Create and verify admin_madrasah user"""
-    log("TEST: Create admin_madrasah user")
+# Test 1.1: GET /auth/profile with super_admin token
+print("\n[Test 1.1] GET /auth/profile with super_admin token")
+super_token = login(SUPER_ADMIN["email"], SUPER_ADMIN["password"])
+if super_token:
     try:
-        # Register
-        payload = {
-            "name": "Admin MI Al-Hidayah",
-            "email": f"admin_{datetime.now().timestamp()}@alhidayah.sch.id",
-            "password": "AdminPass123!",
-            "role": "admin_madrasah",
-            "madrasah_name": "MI Al-Hidayah"
-        }
-        resp = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=10)
-        log(f"  Register status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: Registration failed")
-            return False
-        
-        test_data['admin_madrasah']['email'] = payload['email']
-        test_data['admin_madrasah']['password'] = payload['password']
-        test_data['admin_madrasah']['madrasah_name'] = payload['madrasah_name']
-        
-        # Get user ID
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        resp = requests.get(f"{BASE_URL}/users", headers=headers, timeout=10)
-        users = resp.json()
-        admin_user = next((u for u in users if u.get('email') == payload['email']), None)
-        
-        if not admin_user:
-            log(f"  ❌ FAILED: Admin user not found")
-            return False
-        
-        # Verify user
-        verify_payload = {"status": "verified"}
-        resp = requests.put(f"{BASE_URL}/users/{admin_user['id']}", json=verify_payload, headers=headers, timeout=10)
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: Verification failed")
-            return False
-        
-        # Login
-        login_payload = {"email": payload['email'], "password": payload['password']}
-        resp = requests.post(f"{BASE_URL}/auth/login", json=login_payload, timeout=10)
-        data = resp.json()
-        
-        if resp.status_code != 200 or 'token' not in data:
-            log(f"  ❌ FAILED: Login failed")
-            return False
-        
-        test_data['admin_madrasah']['token'] = data['token']
-        test_data['admin_madrasah']['id'] = data['user']['id']
-        log(f"  ✅ PASSED: Admin madrasah created and verified")
-        return True
+        resp = requests.get(f"{BASE_URL}/auth/profile", headers={"Authorization": f"Bearer {super_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            has_password_plain = "password_plain" in data
+            # photo_url is optional, can be missing/null
+            no_password = "password" not in data
+            no_token = "token" not in data
+            no_id = "_id" not in data
+            
+            if has_password_plain and no_password and no_token and no_id:
+                log_test("1.1 GET /auth/profile super_admin", True, f"Returns password_plain={data.get('password_plain')}, photo_url={data.get('photo_url', 'null')}, no password/token/_id leak")
+            else:
+                log_test("1.1 GET /auth/profile super_admin", False, f"Missing fields or leaks: password_plain={has_password_plain}, no_password={no_password}, no_token={no_token}, no_id={no_id}")
+        else:
+            log_test("1.1 GET /auth/profile super_admin", False, f"Status {resp.status_code}: {resp.text}")
     except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
+        log_test("1.1 GET /auth/profile super_admin", False, f"Exception: {e}")
+else:
+    log_test("1.1 GET /auth/profile super_admin", False, "Login failed")
 
-def test_peserta_create_incomplete():
-    """Test: POST /peserta with gender='L' but no files => complete:false"""
-    log("TEST: Create peserta with gender='L', no files => complete:false")
+# Test 1.2: GET /auth/profile with admin_madrasah token
+print("\n[Test 1.2] GET /auth/profile with admin_madrasah token")
+# NOTE: Password might be admin123 or newpass123 depending on previous test runs
+admin_token = login(ADMIN_MADRASAH["email"], ADMIN_MADRASAH["password"])
+if not admin_token:
+    # Try with newpass123 if admin123 failed (from previous test run)
+    admin_token = login(ADMIN_MADRASAH["email"], "newpass123")
+print(f"DEBUG: admin_token after initial login: {admin_token[:20] if admin_token else 'None'}...")
+if admin_token:
     try:
-        headers = {"Authorization": f"Bearer {test_data['admin_madrasah']['token']}"}
-        payload = {
-            "participant_name": "Ahmad Zainudin",
-            "gender": "L",
-            "lomba_id": test_data['lomba_individu']['id'],
-            "files": {}
-        }
-        resp = requests.post(f"{BASE_URL}/peserta", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('gender') != 'L':
-            log(f"  ❌ FAILED: Expected gender='L', got '{data.get('gender')}'")
-            return False
-        
-        if data.get('complete') != False:
-            log(f"  ❌ FAILED: Expected complete=false, got {data.get('complete')}")
-            return False
-        
-        if not data.get('nomor_peserta'):
-            log(f"  ❌ FAILED: nomor_peserta not auto-generated")
-            return False
-        
-        test_data['peserta_incomplete'] = data
-        log(f"  ✅ PASSED: Peserta created - gender='L', complete=false, nomor={data['nomor_peserta']}")
-        return True
+        resp = requests.get(f"{BASE_URL}/auth/profile", headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            has_password_plain = "password_plain" in data
+            # photo_url is optional at this point (will be set in Test 2)
+            has_madrasah_name = "madrasah_name" in data
+            no_password = "password" not in data
+            no_token = "token" not in data
+            
+            if has_password_plain and has_madrasah_name and no_password and no_token:
+                log_test("1.2 GET /auth/profile admin_madrasah", True, f"Returns password_plain={data.get('password_plain')}, madrasah_name={data.get('madrasah_name')}, photo_url={data.get('photo_url', 'null')}, no leaks")
+            else:
+                log_test("1.2 GET /auth/profile admin_madrasah", False, f"Missing fields or leaks: password_plain={has_password_plain}, madrasah_name={has_madrasah_name}, no_password={no_password}, no_token={no_token}")
+        else:
+            log_test("1.2 GET /auth/profile admin_madrasah", False, f"Status {resp.status_code}: {resp.text}")
     except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
+        log_test("1.2 GET /auth/profile admin_madrasah", False, f"Exception: {e}")
+else:
+    log_test("1.2 GET /auth/profile admin_madrasah", False, "Login failed")
 
-def test_peserta_create_complete():
-    """Test: POST /peserta with gender='P' and all files => complete:true"""
-    log("TEST: Create peserta with gender='P' and all files => complete:true")
+# Test 1.3: GET /auth/profile with panitia token
+print("\n[Test 1.3] GET /auth/profile with panitia token")
+panitia_token = login(PANITIA["email"], PANITIA["password"])
+if panitia_token:
     try:
-        headers = {"Authorization": f"Bearer {test_data['admin_madrasah']['token']}"}
-        payload = {
-            "participant_name": "Fatimah Azzahra",
-            "gender": "P",
-            "lomba_id": test_data['lomba_individu']['id'],
-            "files": {
-                "akte": {"id": "file-akte-123", "name": "akte.pdf"},
-                "surat_ket": {"id": "file-surat-456", "name": "surat_ket.pdf"},
-                "pas_photo": {"id": "file-photo-789", "name": "photo.jpg"}
-            }
-        }
-        resp = requests.post(f"{BASE_URL}/peserta", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('gender') != 'P':
-            log(f"  ❌ FAILED: Expected gender='P', got '{data.get('gender')}'")
-            return False
-        
-        if data.get('complete') != True:
-            log(f"  ❌ FAILED: Expected complete=true, got {data.get('complete')}")
-            return False
-        
-        test_data['peserta_complete'] = data
-        log(f"  ✅ PASSED: Peserta created - gender='P', complete=true")
-        return True
+        resp = requests.get(f"{BASE_URL}/auth/profile", headers={"Authorization": f"Bearer {panitia_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            has_password_plain = "password_plain" in data
+            has_assigned_lomba_id = "assigned_lomba_id" in data
+            no_password = "password" not in data
+            
+            if has_password_plain and has_assigned_lomba_id and no_password:
+                log_test("1.3 GET /auth/profile panitia", True, f"Returns password_plain={data.get('password_plain')}, assigned_lomba_id={data.get('assigned_lomba_id')}, no leaks")
+            else:
+                log_test("1.3 GET /auth/profile panitia", False, f"Missing fields or leaks")
+        else:
+            log_test("1.3 GET /auth/profile panitia", False, f"Status {resp.status_code}: {resp.text}")
     except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
+        log_test("1.3 GET /auth/profile panitia", False, f"Exception: {e}")
+else:
+    log_test("1.3 GET /auth/profile panitia", False, "Login failed")
 
-def test_peserta_create_without_gender():
-    """Test: POST /peserta WITHOUT gender => gender='' and complete:false"""
-    log("TEST: Create peserta WITHOUT gender => gender='', complete=false")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['admin_madrasah']['token']}"}
-        payload = {
-            "participant_name": "Peserta No Gender",
-            "lomba_id": test_data['lomba_individu']['id'],
-            "files": {
-                "akte": {"id": "file-akte-999", "name": "akte.pdf"},
-                "surat_ket": {"id": "file-surat-999", "name": "surat_ket.pdf"},
-                "pas_photo": {"id": "file-photo-999", "name": "photo.jpg"}
-            }
-        }
-        resp = requests.post(f"{BASE_URL}/peserta", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('gender') != '':
-            log(f"  ❌ FAILED: Expected gender='', got '{data.get('gender')}'")
-            return False
-        
-        if data.get('complete') != False:
-            log(f"  ❌ FAILED: Expected complete=false (missing gender), got {data.get('complete')}")
-            return False
-        
-        test_data['peserta_no_gender'] = data
-        log(f"  ✅ PASSED: Peserta without gender => gender='', complete=false")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_peserta_update_to_complete():
-    """Test: PUT /peserta/:id to add all files => complete becomes true"""
-    log("TEST: Update incomplete peserta with all files => complete=true")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['admin_madrasah']['token']}"}
-        peserta_id = test_data['peserta_incomplete']['id']
-        payload = {
-            "files": {
-                "akte": {"id": "file-akte-111", "name": "akte.pdf"},
-                "surat_ket": {"id": "file-surat-222", "name": "surat_ket.pdf"},
-                "pas_photo": {"id": "file-photo-333", "name": "photo.jpg"}
-            }
-        }
-        resp = requests.put(f"{BASE_URL}/peserta/{peserta_id}", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('complete') != True:
-            log(f"  ❌ FAILED: Expected complete=true after adding files, got {data.get('complete')}")
-            return False
-        
-        log(f"  ✅ PASSED: Peserta updated - complete=true after adding files")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_peserta_update_lomba_id():
-    """Test: PUT /peserta/:id changing lomba_id updates lomba_name"""
-    log("TEST: Update peserta lomba_id => lomba_name updated")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['admin_madrasah']['token']}"}
-        peserta_id = test_data['peserta_complete']['id']
-        payload = {"lomba_id": test_data['lomba_kelompok']['id']}
-        resp = requests.put(f"{BASE_URL}/peserta/{peserta_id}", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('lomba_name') != test_data['lomba_kelompok']['name']:
-            log(f"  ❌ FAILED: lomba_name not updated, expected '{test_data['lomba_kelompok']['name']}', got '{data.get('lomba_name')}'")
-            return False
-        
-        # Revert back
-        payload2 = {"lomba_id": test_data['lomba_individu']['id']}
-        requests.put(f"{BASE_URL}/peserta/{peserta_id}", json=payload2, headers=headers, timeout=10)
-        
-        log(f"  ✅ PASSED: lomba_name updated when lomba_id changed")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-# ============================================================================
-# PANITIA VISIBILITY FILTER TESTS
-# ============================================================================
-
-def test_create_panitia():
-    """Test: Create and verify panitia user"""
-    log("TEST: Create panitia user with assigned_lomba_id")
-    try:
-        # Register
-        payload = {
-            "name": "Panitia Kaligrafi",
-            "email": f"panitia_{datetime.now().timestamp()}@porseni.id",
-            "password": "PanitiaPass123!",
-            "role": "panitia",
-            "assigned_lomba_id": test_data['lomba_individu']['id']
-        }
-        resp = requests.post(f"{BASE_URL}/auth/register", json=payload, timeout=10)
-        log(f"  Register status: {resp.status_code}")
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: Registration failed")
-            return False
-        
-        test_data['panitia']['email'] = payload['email']
-        test_data['panitia']['password'] = payload['password']
-        test_data['panitia']['assigned_lomba_id'] = payload['assigned_lomba_id']
-        
-        # Get user ID and verify
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        resp = requests.get(f"{BASE_URL}/users", headers=headers, timeout=10)
-        users = resp.json()
-        panitia_user = next((u for u in users if u.get('email') == payload['email']), None)
-        
-        if not panitia_user:
-            log(f"  ❌ FAILED: Panitia user not found")
-            return False
-        
-        verify_payload = {"status": "verified"}
-        resp = requests.put(f"{BASE_URL}/users/{panitia_user['id']}", json=verify_payload, headers=headers, timeout=10)
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: Verification failed")
-            return False
-        
-        # Login
-        login_payload = {"email": payload['email'], "password": payload['password']}
-        resp = requests.post(f"{BASE_URL}/auth/login", json=login_payload, timeout=10)
-        data = resp.json()
-        
-        if resp.status_code != 200 or 'token' not in data:
-            log(f"  ❌ FAILED: Login failed")
-            return False
-        
-        test_data['panitia']['token'] = data['token']
-        log(f"  ✅ PASSED: Panitia created and verified")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_panitia_visibility_filter():
-    """Test: GET /peserta as panitia => only complete:true peserta of assigned lomba"""
-    log("TEST: Panitia GET /peserta => only complete peserta of assigned lomba")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['panitia']['token']}"}
-        resp = requests.get(f"{BASE_URL}/peserta", headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if not isinstance(data, list):
-            log(f"  ❌ FAILED: Expected array")
-            return False
-        
-        assigned_lomba = test_data['panitia']['assigned_lomba_id']
-        
-        # Check all peserta are from assigned lomba AND complete=true
-        for p in data:
-            if p.get('lomba_id') != assigned_lomba:
-                log(f"  ❌ FAILED: Panitia sees peserta from other lomba: {p['id']}")
-                return False
-            if p.get('complete') != True:
-                log(f"  ❌ FAILED: Panitia sees incomplete peserta: {p['id']}, complete={p.get('complete')}")
-                return False
-        
-        # Verify incomplete peserta (no gender) is NOT in the list
-        incomplete_id = test_data['peserta_no_gender']['id']
-        if any(p['id'] == incomplete_id for p in data):
-            log(f"  ❌ FAILED: Panitia should NOT see incomplete peserta (no gender)")
-            return False
-        
-        log(f"  ✅ PASSED: Panitia sees only complete peserta of assigned lomba ({len(data)} peserta)")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_admin_madrasah_sees_all_own():
-    """Test: GET /peserta as admin_madrasah => sees all own (complete + incomplete)"""
-    log("TEST: Admin madrasah GET /peserta => sees all own peserta")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['admin_madrasah']['token']}"}
-        resp = requests.get(f"{BASE_URL}/peserta", headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        # Should see both complete and incomplete
-        has_complete = any(p['id'] == test_data['peserta_complete']['id'] for p in data)
-        has_incomplete = any(p['id'] == test_data['peserta_incomplete']['id'] for p in data)
-        
-        if not has_complete or not has_incomplete:
-            log(f"  ❌ FAILED: Admin madrasah should see both complete and incomplete peserta")
-            return False
-        
-        log(f"  ✅ PASSED: Admin madrasah sees all own peserta ({len(data)} peserta)")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_super_admin_sees_all():
-    """Test: GET /peserta as super_admin => sees all peserta"""
-    log("TEST: Super admin GET /peserta => sees all peserta")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        resp = requests.get(f"{BASE_URL}/peserta", headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        log(f"  ✅ PASSED: Super admin sees all peserta ({len(data)} peserta)")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-# ============================================================================
-# JUARA GROUP SUPPORT TESTS
-# ============================================================================
-
-def test_juara_create_group():
-    """Test: POST /juara for kelompok lomba with is_group:true"""
-    log("TEST: Create group juara for kelompok lomba")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        payload = {
-            "lomba_id": test_data['lomba_kelompok']['id'],
-            "rank": "Juara 1",
-            "madrasah_name": "MI Al-Hidayah",
-            "is_group": True
-        }
-        resp = requests.post(f"{BASE_URL}/juara", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('is_group') != True:
-            log(f"  ❌ FAILED: Expected is_group=true, got {data.get('is_group')}")
-            return False
-        
-        if data.get('madrasah_name') != "MI Al-Hidayah":
-            log(f"  ❌ FAILED: Expected madrasah_name='MI Al-Hidayah', got '{data.get('madrasah_name')}'")
-            return False
-        
-        if data.get('participant_name') != "MI Al-Hidayah":
-            log(f"  ❌ FAILED: Expected participant_name='MI Al-Hidayah', got '{data.get('participant_name')}'")
-            return False
-        
-        if data.get('peserta_id') is not None:
-            log(f"  ❌ FAILED: Expected peserta_id=null for group, got {data.get('peserta_id')}")
-            return False
-        
-        test_data['juara_group'] = data
-        log(f"  ✅ PASSED: Group juara created - is_group=true, madrasah_name='MI Al-Hidayah'")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_juara_upsert_same_rank():
-    """Test: POST /juara again with same rank => upsert replaces"""
-    log("TEST: Create juara with same rank => upsert replaces")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        payload = {
-            "lomba_id": test_data['lomba_kelompok']['id'],
-            "rank": "Juara 1",
-            "madrasah_name": "MI Nurul Huda",
-            "is_group": True
-        }
-        resp = requests.post(f"{BASE_URL}/juara", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('madrasah_name') != "MI Nurul Huda":
-            log(f"  ❌ FAILED: Upsert didn't replace, got '{data.get('madrasah_name')}'")
-            return False
-        
-        # Verify only one Juara 1 exists
-        resp2 = requests.get(f"{BASE_URL}/juara?lomba_id={test_data['lomba_kelompok']['id']}", headers=headers, timeout=10)
-        juara_list = resp2.json()
-        juara_1_count = sum(1 for j in juara_list if j.get('rank') == 'Juara 1')
-        
-        if juara_1_count != 1:
-            log(f"  ❌ FAILED: Expected 1 Juara 1, found {juara_1_count}")
-            return False
-        
-        log(f"  ✅ PASSED: Upsert replaced previous Juara 1")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_juara_create_individual():
-    """Test: POST /juara for individu lomba with peserta_id"""
-    log("TEST: Create individual juara for individu lomba")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        payload = {
-            "lomba_id": test_data['lomba_individu']['id'],
-            "rank": "Juara 1",
-            "peserta_id": test_data['peserta_complete']['id']
-        }
-        resp = requests.post(f"{BASE_URL}/juara", json=payload, headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if data.get('is_group') != False:
-            log(f"  ❌ FAILED: Expected is_group=false, got {data.get('is_group')}")
-            return False
-        
-        if data.get('participant_name') != test_data['peserta_complete']['participant_name']:
-            log(f"  ❌ FAILED: participant_name mismatch")
-            return False
-        
-        if data.get('madrasah_name') != test_data['peserta_complete']['madrasah_name']:
-            log(f"  ❌ FAILED: madrasah_name not set from peserta")
-            return False
-        
-        test_data['juara_individual'] = data
-        log(f"  ✅ PASSED: Individual juara created - is_group=false, participant_name set")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_juara_get_filter():
-    """Test: GET /juara?lomba_id= filters correctly"""
-    log("TEST: GET /juara with lomba_id filter")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        
-        # Get juara for individu lomba
-        resp = requests.get(f"{BASE_URL}/juara?lomba_id={test_data['lomba_individu']['id']}", headers=headers, timeout=10)
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        # All should be from individu lomba
-        for j in data:
-            if j.get('lomba_id') != test_data['lomba_individu']['id']:
-                log(f"  ❌ FAILED: Filter not working, found juara from other lomba")
-                return False
-        
-        log(f"  ✅ PASSED: Juara filter working ({len(data)} juara)")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-def test_juara_delete():
-    """Test: DELETE /juara/:id works"""
-    log("TEST: DELETE /juara/:id")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        juara_id = test_data['juara_individual']['id']
-        resp = requests.delete(f"{BASE_URL}/juara/{juara_id}", headers=headers, timeout=10)
-        log(f"  Status: {resp.status_code}")
-        data = resp.json()
-        
-        if resp.status_code != 200:
-            log(f"  ❌ FAILED: {data}")
-            return False
-        
-        if not data.get('ok'):
-            log(f"  ❌ FAILED: Delete didn't return ok:true")
-            return False
-        
-        log(f"  ✅ PASSED: Juara deleted successfully")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-# ============================================================================
-# SECURITY TESTS
-# ============================================================================
-
-def test_no_sensitive_data_leak():
-    """Test: Verify no _id/password/token leaks in responses"""
-    log("TEST: Check for sensitive data leaks")
-    try:
-        headers = {"Authorization": f"Bearer {test_data['super_admin']['token']}"}
-        
-        # Check lomba
-        resp = requests.get(f"{BASE_URL}/lomba", timeout=10)
-        lomba = resp.json()
-        for l in lomba:
-            if '_id' in l or 'password' in l or 'token' in l:
-                log(f"  ❌ FAILED: Sensitive data in lomba response")
-                return False
-        
-        # Check peserta
-        resp = requests.get(f"{BASE_URL}/peserta", headers=headers, timeout=10)
-        peserta = resp.json()
-        for p in peserta:
-            if '_id' in p or 'password' in p or 'token' in p:
-                log(f"  ❌ FAILED: Sensitive data in peserta response")
-                return False
-        
-        # Check juara
-        resp = requests.get(f"{BASE_URL}/juara", headers=headers, timeout=10)
-        juara = resp.json()
-        for j in juara:
-            if '_id' in j or 'password' in j or 'token' in j:
-                log(f"  ❌ FAILED: Sensitive data in juara response")
-                return False
-        
-        log(f"  ✅ PASSED: No sensitive data leaks detected")
-        return True
-    except Exception as e:
-        log(f"  ❌ EXCEPTION: {str(e)}")
-        return False
-
-# ============================================================================
-# MAIN TEST RUNNER
-# ============================================================================
-
-def run_all_tests():
-    """Run all backend tests"""
-    log("=" * 80)
-    log("SIM PORSENI BACKEND API TESTS - RECENT CHANGES")
-    log("=" * 80)
-    
-    tests = [
-        # Auth
-        ("Super Admin Login", test_super_admin_login),
-        
-        # Lomba type field tests
-        ("Lomba: Create with type='individu'", test_lomba_create_with_type_individu),
-        ("Lomba: Create with type='kelompok'", test_lomba_create_with_type_kelompok),
-        ("Lomba: Create without type (default)", test_lomba_create_without_type),
-        ("Lomba: Update type", test_lomba_update_type),
-        ("Lomba: GET returns type field", test_lomba_get_returns_type),
-        
-        # Peserta gender + complete tests
-        ("Setup: Create admin_madrasah", test_create_admin_madrasah),
-        ("Peserta: Create with gender='L', no files", test_peserta_create_incomplete),
-        ("Peserta: Create with gender='P', all files", test_peserta_create_complete),
-        ("Peserta: Create without gender", test_peserta_create_without_gender),
-        ("Peserta: Update to complete", test_peserta_update_to_complete),
-        ("Peserta: Update lomba_id updates lomba_name", test_peserta_update_lomba_id),
-        
-        # Panitia visibility tests
-        ("Setup: Create panitia", test_create_panitia),
-        ("Panitia: Visibility filter (complete only)", test_panitia_visibility_filter),
-        ("Admin Madrasah: Sees all own peserta", test_admin_madrasah_sees_all_own),
-        ("Super Admin: Sees all peserta", test_super_admin_sees_all),
-        
-        # Juara group support tests
-        ("Juara: Create group winner", test_juara_create_group),
-        ("Juara: Upsert same rank", test_juara_upsert_same_rank),
-        ("Juara: Create individual winner", test_juara_create_individual),
-        ("Juara: GET with filter", test_juara_get_filter),
-        ("Juara: DELETE", test_juara_delete),
-        
-        # Security
-        ("Security: No sensitive data leaks", test_no_sensitive_data_leak),
-    ]
-    
-    results = []
-    for name, test_func in tests:
-        log("")
-        result = test_func()
-        results.append((name, result))
-    
-    log("")
-    log("=" * 80)
-    log("TEST SUMMARY")
-    log("=" * 80)
-    
-    passed = sum(1 for _, r in results if r)
-    failed = sum(1 for _, r in results if not r)
-    
-    log(f"Total: {len(results)} | Passed: {passed} | Failed: {failed}")
-    log("")
-    
-    if failed > 0:
-        log("FAILED TESTS:")
-        for name, result in results:
-            if not result:
-                log(f"  ❌ {name}")
+# Test 1.4: GET /auth/profile with no token (401)
+print("\n[Test 1.4] GET /auth/profile with no token")
+try:
+    resp = requests.get(f"{BASE_URL}/auth/profile", timeout=10)
+    if resp.status_code == 401:
+        log_test("1.4 GET /auth/profile no token", True, "Returns 401 as expected")
     else:
-        log("✅ ALL TESTS PASSED!")
-    
-    log("=" * 80)
-    return passed, failed, results
+        log_test("1.4 GET /auth/profile no token", False, f"Expected 401, got {resp.status_code}")
+except Exception as e:
+    log_test("1.4 GET /auth/profile no token", False, f"Exception: {e}")
 
-if __name__ == "__main__":
-    passed, failed, results = run_all_tests()
-    exit(0 if failed == 0 else 1)
+# Test 1.5: GET /auth/profile with invalid token (401)
+print("\n[Test 1.5] GET /auth/profile with invalid token")
+try:
+    resp = requests.get(f"{BASE_URL}/auth/profile", headers={"Authorization": "Bearer invalid-token-xyz"}, timeout=10)
+    if resp.status_code == 401:
+        log_test("1.5 GET /auth/profile invalid token", True, "Returns 401 as expected")
+    else:
+        log_test("1.5 GET /auth/profile invalid token", False, f"Expected 401, got {resp.status_code}")
+except Exception as e:
+    log_test("1.5 GET /auth/profile invalid token", False, f"Exception: {e}")
+
+# ============================================================================
+# TEST 2: Profile self-service - PUT /auth/profile (password change on admin.mi)
+# ============================================================================
+print("\n" + "=" * 80)
+print("TEST 2: Profile self-service - PUT /auth/profile")
+print("=" * 80)
+
+# Test 2.1: PUT /auth/profile to update name, photo_url, password (admin.mi only)
+print("\n[Test 2.1] PUT /auth/profile update name, photo_url, password (admin.mi)")
+if admin_token:
+    try:
+        new_data = {
+            "name": "Admin MI Updated",
+            "photo_url": "/api/files/test-photo-123",
+            "password": "newpass123"
+        }
+        resp = requests.put(f"{BASE_URL}/auth/profile", json=new_data, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            name_updated = data.get("name") == "Admin MI Updated"
+            photo_updated = data.get("photo_url") == "/api/files/test-photo-123"
+            password_plain_updated = data.get("password_plain") == "newpass123"
+            
+            if name_updated and photo_updated and password_plain_updated:
+                log_test("2.1 PUT /auth/profile update", True, f"Updated name={data.get('name')}, photo_url={data.get('photo_url')}, password_plain={data.get('password_plain')}")
+            else:
+                log_test("2.1 PUT /auth/profile update", False, f"Update failed: name={name_updated}, photo={photo_updated}, password_plain={password_plain_updated}")
+        else:
+            log_test("2.1 PUT /auth/profile update", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("2.1 PUT /auth/profile update", False, f"Exception: {e}")
+else:
+    log_test("2.1 PUT /auth/profile update", False, "No admin token")
+
+# Test 2.2: Login with OLD password should fail
+print("\n[Test 2.2] Login with OLD password (admin123) should fail")
+try:
+    resp = requests.post(f"{BASE_URL}/auth/login", json={"email": ADMIN_MADRASAH["email"], "password": "admin123"}, timeout=10)
+    if resp.status_code == 401:
+        log_test("2.2 Login with old password", True, "Old password rejected with 401 as expected")
+    else:
+        log_test("2.2 Login with old password", False, f"Expected 401, got {resp.status_code}")
+except Exception as e:
+    log_test("2.2 Login with old password", False, f"Exception: {e}")
+
+# Test 2.3: Login with NEW password should succeed
+print("\n[Test 2.3] Login with NEW password (newpass123) should succeed")
+try:
+    resp = requests.post(f"{BASE_URL}/auth/login", json={"email": ADMIN_MADRASAH["email"], "password": "newpass123"}, timeout=10)
+    if resp.status_code == 200:
+        data = resp.json()
+        new_token = data.get("token")
+        if new_token:
+            admin_token = new_token  # Update admin_token for subsequent tests
+            print(f"DEBUG: admin_token updated after password change: {admin_token[:20]}...")
+            log_test("2.3 Login with new password", True, f"New password login succeeded, token={new_token[:20]}...")
+        else:
+            log_test("2.3 Login with new password", False, "No token in response")
+    else:
+        log_test("2.3 Login with new password", False, f"Status {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("2.3 Login with new password", False, f"Exception: {e}")
+
+# Test 2.4: GET /auth/profile shows updated name, photo_url, password_plain
+print("\n[Test 2.4] GET /auth/profile shows updated data")
+if admin_token:
+    try:
+        resp = requests.get(f"{BASE_URL}/auth/profile", headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            name_correct = data.get("name") == "Admin MI Updated"
+            photo_correct = data.get("photo_url") == "/api/files/test-photo-123"
+            password_plain_correct = data.get("password_plain") == "newpass123"
+            
+            if name_correct and photo_correct and password_plain_correct:
+                log_test("2.4 GET /auth/profile after update", True, f"Shows updated name={data.get('name')}, photo_url={data.get('photo_url')}, password_plain={data.get('password_plain')}")
+            else:
+                log_test("2.4 GET /auth/profile after update", False, f"Data mismatch: name={name_correct}, photo={photo_correct}, password_plain={password_plain_correct}")
+        else:
+            log_test("2.4 GET /auth/profile after update", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("2.4 GET /auth/profile after update", False, f"Exception: {e}")
+else:
+    log_test("2.4 GET /auth/profile after update", False, "No admin token")
+
+# Test 2.5: Verify /auth/login response does NOT leak password/password_plain/token
+print("\n[Test 2.5] Verify /auth/login response does NOT leak password/password_plain/token")
+try:
+    resp = requests.post(f"{BASE_URL}/auth/login", json={"email": ADMIN_MADRASAH["email"], "password": "newpass123"}, timeout=10)
+    if resp.status_code == 200:
+        data = resp.json()
+        user_obj = data.get("user", {})
+        no_password = "password" not in user_obj
+        no_password_plain = "password_plain" not in user_obj
+        no_token_in_user = "token" not in user_obj
+        
+        if no_password and no_password_plain and no_token_in_user:
+            log_test("2.5 Login response no leak", True, "Login response user object does NOT contain password/password_plain/token")
+        else:
+            log_test("2.5 Login response no leak", False, f"LEAK DETECTED: password={not no_password}, password_plain={not no_password_plain}, token={not no_token_in_user}")
+    else:
+        log_test("2.5 Login response no leak", False, f"Status {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("2.5 Login response no leak", False, f"Exception: {e}")
+
+# ============================================================================
+# TEST 3: Lomba team_size field
+# ============================================================================
+print("\n" + "=" * 80)
+print("TEST 3: Lomba team_size field")
+print("=" * 80)
+
+# Test 3.1: POST /lomba with type=kelompok and team_size=6
+print("\n[Test 3.1] POST /lomba with type=kelompok and team_size=6")
+test_lomba_kelompok_id = None
+if super_token:
+    try:
+        lomba_data = {
+            "name": "Test Kelompok Lomba",
+            "category": "Olahraga",
+            "type": "kelompok",
+            "team_size": 6
+        }
+        resp = requests.post(f"{BASE_URL}/lomba", json=lomba_data, headers={"Authorization": f"Bearer {super_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            test_lomba_kelompok_id = data.get("id")
+            team_size = data.get("team_size")
+            if team_size == 6:
+                log_test("3.1 POST lomba kelompok team_size=6", True, f"Created lomba id={test_lomba_kelompok_id}, team_size={team_size}")
+            else:
+                log_test("3.1 POST lomba kelompok team_size=6", False, f"Expected team_size=6, got {team_size}")
+        else:
+            log_test("3.1 POST lomba kelompok team_size=6", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("3.1 POST lomba kelompok team_size=6", False, f"Exception: {e}")
+else:
+    log_test("3.1 POST lomba kelompok team_size=6", False, "No super token")
+
+# Test 3.2: POST /lomba with type=individu (team_size should be null)
+print("\n[Test 3.2] POST /lomba with type=individu (team_size null)")
+test_lomba_individu_id = None
+if super_token:
+    try:
+        lomba_data = {
+            "name": "Test Individu Lomba",
+            "category": "Seni",
+            "type": "individu"
+        }
+        resp = requests.post(f"{BASE_URL}/lomba", json=lomba_data, headers={"Authorization": f"Bearer {super_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            test_lomba_individu_id = data.get("id")
+            team_size = data.get("team_size")
+            if team_size is None:
+                log_test("3.2 POST lomba individu team_size=null", True, f"Created lomba id={test_lomba_individu_id}, team_size={team_size}")
+            else:
+                log_test("3.2 POST lomba individu team_size=null", False, f"Expected team_size=null, got {team_size}")
+        else:
+            log_test("3.2 POST lomba individu team_size=null", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("3.2 POST lomba individu team_size=null", False, f"Exception: {e}")
+else:
+    log_test("3.2 POST lomba individu team_size=null", False, "No super token")
+
+# Test 3.3: PUT /lomba/:id to update team_size to 8
+print("\n[Test 3.3] PUT /lomba/:id to update team_size to 8")
+if super_token and test_lomba_kelompok_id:
+    try:
+        resp = requests.put(f"{BASE_URL}/lomba/{test_lomba_kelompok_id}", json={"team_size": 8}, headers={"Authorization": f"Bearer {super_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            team_size = data.get("team_size")
+            if team_size == 8:
+                log_test("3.3 PUT lomba team_size=8", True, f"Updated team_size to {team_size}")
+            else:
+                log_test("3.3 PUT lomba team_size=8", False, f"Expected team_size=8, got {team_size}")
+        else:
+            log_test("3.3 PUT lomba team_size=8", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("3.3 PUT lomba team_size=8", False, f"Exception: {e}")
+else:
+    log_test("3.3 PUT lomba team_size=8", False, "No super token or lomba id")
+
+# Test 3.4: GET /lomba returns team_size field
+print("\n[Test 3.4] GET /lomba returns team_size field")
+try:
+    resp = requests.get(f"{BASE_URL}/lomba", timeout=10)
+    if resp.status_code == 200:
+        lomba_list = resp.json()
+        found_kelompok = False
+        found_individu = False
+        for lomba in lomba_list:
+            if lomba.get("id") == test_lomba_kelompok_id:
+                found_kelompok = True
+                if lomba.get("team_size") == 8:
+                    log_test("3.4 GET lomba team_size kelompok", True, f"Kelompok lomba has team_size=8")
+                else:
+                    log_test("3.4 GET lomba team_size kelompok", False, f"Expected team_size=8, got {lomba.get('team_size')}")
+            if lomba.get("id") == test_lomba_individu_id:
+                found_individu = True
+                if lomba.get("team_size") is None:
+                    log_test("3.4 GET lomba team_size individu", True, f"Individu lomba has team_size=null")
+                else:
+                    log_test("3.4 GET lomba team_size individu", False, f"Expected team_size=null, got {lomba.get('team_size')}")
+        if not found_kelompok:
+            log_test("3.4 GET lomba team_size kelompok", False, "Kelompok lomba not found in list")
+        if not found_individu:
+            log_test("3.4 GET lomba team_size individu", False, "Individu lomba not found in list")
+    else:
+        log_test("3.4 GET lomba team_size", False, f"Status {resp.status_code}: {resp.text}")
+except Exception as e:
+    log_test("3.4 GET lomba team_size", False, f"Exception: {e}")
+
+# Test 3.5: Clean up - DELETE test lomba
+print("\n[Test 3.5] Clean up - DELETE test lomba")
+if super_token:
+    deleted_count = 0
+    if test_lomba_kelompok_id:
+        try:
+            resp = requests.delete(f"{BASE_URL}/lomba/{test_lomba_kelompok_id}", headers={"Authorization": f"Bearer {super_token}"}, timeout=10)
+            if resp.status_code == 200:
+                deleted_count += 1
+        except Exception as e:
+            print(f"Delete kelompok lomba exception: {e}")
+    
+    if test_lomba_individu_id:
+        try:
+            resp = requests.delete(f"{BASE_URL}/lomba/{test_lomba_individu_id}", headers={"Authorization": f"Bearer {super_token}"}, timeout=10)
+            if resp.status_code == 200:
+                deleted_count += 1
+        except Exception as e:
+            print(f"Delete individu lomba exception: {e}")
+    
+    log_test("3.5 Clean up test lomba", True, f"Deleted {deleted_count} test lomba")
+else:
+    log_test("3.5 Clean up test lomba", False, "No super token")
+
+# ============================================================================
+# TEST 4: Peserta nomor_peserta manual edit
+# ============================================================================
+print("\n" + "=" * 80)
+print("TEST 4: Peserta nomor_peserta manual edit")
+print("=" * 80)
+
+# Re-login to ensure we have a valid token (password is now newpass123)
+print("\n[Re-login] Getting fresh admin token for Test 4")
+admin_token = login(ADMIN_MADRASAH["email"], "newpass123")
+if admin_token:
+    print(f"DEBUG: Fresh admin_token for Test 4: {admin_token[:20]}...")
+else:
+    print("WARNING: Failed to get fresh admin token")
+
+# Test 4.1: Create a peserta in Kaligrafi (individu) as admin_madrasah
+print("\n[Test 4.1] POST /peserta to create participant in Kaligrafi")
+print(f"DEBUG: admin_token before Test 4.1: {admin_token[:20] if admin_token else 'None'}...")
+test_peserta_id = None
+kaligrafi = get_lomba_by_name("Kaligrafi")
+if admin_token and kaligrafi:
+    try:
+        peserta_data = {
+            "participant_name": "Test Peserta Kaligrafi",
+            "gender": "L",
+            "nisn": "1234567890",
+            "ttl": "Kediri, 01-01-2010",
+            "lomba_id": kaligrafi.get("id")
+        }
+        resp = requests.post(f"{BASE_URL}/peserta", json=peserta_data, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            test_peserta_id = data.get("id")
+            nomor_peserta = data.get("nomor_peserta")
+            log_test("4.1 POST peserta Kaligrafi", True, f"Created peserta id={test_peserta_id}, nomor_peserta={nomor_peserta}")
+        else:
+            log_test("4.1 POST peserta Kaligrafi", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("4.1 POST peserta Kaligrafi", False, f"Exception: {e}")
+else:
+    log_test("4.1 POST peserta Kaligrafi", False, f"No admin token ({admin_token is not None}) or Kaligrafi lomba not found ({kaligrafi is not None})")
+
+# Test 4.2: PUT /peserta/:id to manually set nomor_peserta="099"
+print("\n[Test 4.2] PUT /peserta/:id to set nomor_peserta='099'")
+if admin_token and test_peserta_id:
+    try:
+        resp = requests.put(f"{BASE_URL}/peserta/{test_peserta_id}", json={"nomor_peserta": "099"}, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            nomor_peserta = data.get("nomor_peserta")
+            if nomor_peserta == "099":
+                log_test("4.2 PUT peserta nomor_peserta", True, f"Updated nomor_peserta to {nomor_peserta}")
+            else:
+                log_test("4.2 PUT peserta nomor_peserta", False, f"Expected nomor_peserta='099', got {nomor_peserta}")
+        else:
+            log_test("4.2 PUT peserta nomor_peserta", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("4.2 PUT peserta nomor_peserta", False, f"Exception: {e}")
+else:
+    log_test("4.2 PUT peserta nomor_peserta", False, "No admin token or peserta id")
+
+# Test 4.3: GET /peserta to verify nomor_peserta="099"
+print("\n[Test 4.3] GET /peserta to verify nomor_peserta='099'")
+if admin_token and test_peserta_id:
+    try:
+        resp = requests.get(f"{BASE_URL}/peserta", headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            peserta_list = resp.json()
+            found = False
+            for peserta in peserta_list:
+                if peserta.get("id") == test_peserta_id:
+                    found = True
+                    nomor_peserta = peserta.get("nomor_peserta")
+                    if nomor_peserta == "099":
+                        log_test("4.3 GET peserta verify nomor_peserta", True, f"Verified nomor_peserta={nomor_peserta}")
+                    else:
+                        log_test("4.3 GET peserta verify nomor_peserta", False, f"Expected '099', got {nomor_peserta}")
+                    break
+            if not found:
+                log_test("4.3 GET peserta verify nomor_peserta", False, "Peserta not found in list")
+        else:
+            log_test("4.3 GET peserta verify nomor_peserta", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("4.3 GET peserta verify nomor_peserta", False, f"Exception: {e}")
+else:
+    log_test("4.3 GET peserta verify nomor_peserta", False, "No admin token or peserta id")
+
+# Clean up test peserta
+if admin_token and test_peserta_id:
+    try:
+        requests.delete(f"{BASE_URL}/peserta/{test_peserta_id}", headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        print("Cleaned up test peserta")
+    except:
+        pass
+
+# ============================================================================
+# TEST 5: Team registration POST /peserta/team
+# ============================================================================
+print("\n" + "=" * 80)
+print("TEST 5: Team registration POST /peserta/team")
+print("=" * 80)
+
+# Re-login to ensure we have a valid token
+print("\n[Re-login] Getting fresh admin token for Test 5")
+admin_token = login(ADMIN_MADRASAH["email"], "newpass123")
+if admin_token:
+    print(f"DEBUG: Fresh admin_token for Test 5: {admin_token[:20]}...")
+else:
+    print("WARNING: Failed to get fresh admin token")
+
+# Test 5.1: POST /peserta/team with 3 members (no files) - complete=false
+print("\n[Test 5.1] POST /peserta/team with 3 members (no files)")
+test_team_id = None
+test_member_ids = []
+futsal = get_lomba_by_name("Futsal")
+if admin_token and futsal:
+    try:
+        team_data = {
+            "lomba_id": futsal.get("id"),
+            "madrasah_name": "MI Al-Hidayah",
+            "members": [
+                {
+                    "participant_name": "Pemain Futsal 1",
+                    "gender": "L",
+                    "nisn": "1111111111",
+                    "ttl": "Kediri, 01-01-2010",
+                    "files": {}
+                },
+                {
+                    "participant_name": "Pemain Futsal 2",
+                    "gender": "L",
+                    "nisn": "2222222222",
+                    "ttl": "Kediri, 02-02-2010",
+                    "files": {}
+                },
+                {
+                    "participant_name": "Pemain Futsal 3",
+                    "gender": "L",
+                    "nisn": "3333333333",
+                    "ttl": "Kediri, 03-03-2010",
+                    "files": {}
+                }
+            ]
+        }
+        resp = requests.post(f"{BASE_URL}/peserta/team", json=team_data, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            test_team_id = data.get("team_id")
+            team_name = data.get("team_name")
+            count = data.get("count")
+            members = data.get("members", [])
+            
+            # Verify response structure
+            if test_team_id and team_name and count == 3 and len(members) == 3:
+                # Verify each member
+                all_correct = True
+                nomor_peserta_list = []
+                for member in members:
+                    test_member_ids.append(member.get("id"))
+                    is_group = member.get("is_group")
+                    member_team_id = member.get("team_id")
+                    complete = member.get("complete")
+                    nomor_peserta = member.get("nomor_peserta")
+                    nomor_peserta_list.append(nomor_peserta)
+                    
+                    if not (is_group == True and member_team_id == test_team_id and complete == False):
+                        all_correct = False
+                        break
+                
+                # Verify sequential nomor_peserta
+                sequential = all(nomor_peserta_list[i] < nomor_peserta_list[i+1] for i in range(len(nomor_peserta_list)-1))
+                
+                if all_correct and sequential:
+                    log_test("5.1 POST /peserta/team 3 members", True, f"Created team team_id={test_team_id}, count=3, all is_group=true, complete=false, sequential nomor_peserta={nomor_peserta_list}")
+                else:
+                    log_test("5.1 POST /peserta/team 3 members", False, f"Member validation failed: all_correct={all_correct}, sequential={sequential}")
+            else:
+                log_test("5.1 POST /peserta/team 3 members", False, f"Response structure invalid: team_id={test_team_id}, count={count}, members_len={len(members)}")
+        else:
+            log_test("5.1 POST /peserta/team 3 members", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("5.1 POST /peserta/team 3 members", False, f"Exception: {e}")
+else:
+    log_test("5.1 POST /peserta/team 3 members", False, "No admin token or Futsal lomba not found")
+
+# Test 5.2: POST /peserta/team with 1 member WITH all 3 files - complete=true
+print("\n[Test 5.2] POST /peserta/team with 1 member WITH all 3 files (complete=true)")
+if admin_token and futsal:
+    try:
+        team_data = {
+            "lomba_id": futsal.get("id"),
+            "madrasah_name": "MI Al-Hidayah",
+            "members": [
+                {
+                    "participant_name": "Pemain Futsal Complete",
+                    "gender": "L",
+                    "nisn": "9999999999",
+                    "ttl": "Kediri, 09-09-2010",
+                    "files": {
+                        "akte": {"id": "file-akte-123", "name": "akte.pdf"},
+                        "surat_ket": {"id": "file-surat-456", "name": "surat.pdf"},
+                        "pas_photo": {"id": "file-photo-789", "name": "photo.jpg"}
+                    }
+                }
+            ]
+        }
+        resp = requests.post(f"{BASE_URL}/peserta/team", json=team_data, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            members = data.get("members", [])
+            if len(members) == 1:
+                member = members[0]
+                test_member_ids.append(member.get("id"))
+                complete = member.get("complete")
+                files = member.get("files", {})
+                has_all_files = "akte" in files and "surat_ket" in files and "pas_photo" in files
+                
+                if complete == True and has_all_files:
+                    log_test("5.2 POST /peserta/team with files", True, f"Created member with complete=true, all 3 files present")
+                else:
+                    log_test("5.2 POST /peserta/team with files", False, f"Expected complete=true with all files, got complete={complete}, has_all_files={has_all_files}")
+            else:
+                log_test("5.2 POST /peserta/team with files", False, f"Expected 1 member, got {len(members)}")
+        else:
+            log_test("5.2 POST /peserta/team with files", False, f"Status {resp.status_code}: {resp.text}")
+    except Exception as e:
+        log_test("5.2 POST /peserta/team with files", False, f"Exception: {e}")
+else:
+    log_test("5.2 POST /peserta/team with files", False, "No admin token or Futsal lomba not found")
+
+# Test 5.3: POST /peserta/team with empty members array - 400
+print("\n[Test 5.3] POST /peserta/team with empty members array (expect 400)")
+if admin_token and futsal:
+    try:
+        team_data = {
+            "lomba_id": futsal.get("id"),
+            "madrasah_name": "MI Al-Hidayah",
+            "members": []
+        }
+        resp = requests.post(f"{BASE_URL}/peserta/team", json=team_data, headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        if resp.status_code == 400:
+            log_test("5.3 POST /peserta/team empty members", True, "Returns 400 as expected")
+        else:
+            log_test("5.3 POST /peserta/team empty members", False, f"Expected 400, got {resp.status_code}")
+    except Exception as e:
+        log_test("5.3 POST /peserta/team empty members", False, f"Exception: {e}")
+else:
+    log_test("5.3 POST /peserta/team empty members", False, "No admin token or Futsal lomba not found")
+
+# Test 5.4: POST /peserta/team with no token - 401
+print("\n[Test 5.4] POST /peserta/team with no token (expect 401)")
+if futsal:
+    try:
+        team_data = {
+            "lomba_id": futsal.get("id"),
+            "madrasah_name": "MI Al-Hidayah",
+            "members": [{"participant_name": "Test", "gender": "L", "nisn": "123", "ttl": "Kediri, 01-01-2010", "files": {}}]
+        }
+        resp = requests.post(f"{BASE_URL}/peserta/team", json=team_data, timeout=10)
+        if resp.status_code == 401:
+            log_test("5.4 POST /peserta/team no token", True, "Returns 401 as expected")
+        else:
+            log_test("5.4 POST /peserta/team no token", False, f"Expected 401, got {resp.status_code}")
+    except Exception as e:
+        log_test("5.4 POST /peserta/team no token", False, f"Exception: {e}")
+else:
+    log_test("5.4 POST /peserta/team no token", False, "Futsal lomba not found")
+
+# Clean up test team members
+if admin_token and test_member_ids:
+    print(f"\nCleaning up {len(test_member_ids)} test team members...")
+    for member_id in test_member_ids:
+        try:
+            requests.delete(f"{BASE_URL}/peserta/{member_id}", headers={"Authorization": f"Bearer {admin_token}"}, timeout=10)
+        except:
+            pass
+    print("Cleaned up test team members")
+
+# ============================================================================
+# SUMMARY
+# ============================================================================
+print("\n" + "=" * 80)
+print("TEST SUMMARY")
+print("=" * 80)
+
+passed = sum(1 for r in test_results if r["passed"])
+failed = sum(1 for r in test_results if not r["passed"])
+total = len(test_results)
+
+print(f"\nTotal Tests: {total}")
+print(f"Passed: {passed}")
+print(f"Failed: {failed}")
+
+if failed > 0:
+    print("\n❌ FAILED TESTS:")
+    for r in test_results:
+        if not r["passed"]:
+            print(f"  - {r['name']}: {r['message']}")
+
+print("\n" + "=" * 80)
+print(f"FINAL PASSWORD FOR admin.mi@porseni.id: newpass123")
+print("=" * 80)
+
+sys.exit(0 if failed == 0 else 1)
