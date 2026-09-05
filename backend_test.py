@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 
 # Base URL
-BASE_URL = "https://5466114d-5b5f-45c3-9ba7-9be5c87593c1.preview.emergentagent.com/api"
+BASE_URL = "https://event-checklist-5.preview.emergentagent.com/api"
 
 # Test data storage
 test_data = {
