@@ -182,11 +182,14 @@ async function handleRoute(request, { params }) {
       if (!sheetsConfigured()) return json({ error: 'Google Sheets belum dikonfigurasi' }, 400)
       try {
         await ensureTab()
-        const all = await db.collection('peserta').find({}).sort({ lomba_name: 1, nomor_peserta: 1 }).toArray()
+        const all = await db.collection('peserta').find({}).sort({ lomba_name: 1, nomor_peserta: 1 }).limit(5000).toArray()
+        // Batch-load lomba to avoid N+1 queries
+        const lombaIds = [...new Set(all.map((d) => d.lomba_id).filter(Boolean))]
+        const lombaDocs = await db.collection('lomba').find({ id: { $in: lombaIds } }).toArray()
+        const lombaMap = Object.fromEntries(lombaDocs.map((l) => [l.id, l]))
         const rows = []
         for (const d of all) {
-          const lomba = await db.collection('lomba').findOne({ id: d.lomba_id })
-          rows.push(await buildSheetRow(db, d, lomba))
+          rows.push(await buildSheetRow(db, d, lombaMap[d.lomba_id] || null))
         }
         await overwriteSheet(SHEET_HEADER, rows)
         return json({ ok: true, synced: rows.length })
