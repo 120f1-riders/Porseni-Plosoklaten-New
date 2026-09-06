@@ -8,6 +8,12 @@ const nextConfig = {
   },
   // Renamed from experimental.serverComponentsExternalPackages in Next 15
   serverExternalPackages: ['mongodb'],
+  // Limit build workers to 1 process to avoid EAGAIN (process/nproc limit)
+  // on shared cPanel hosting during "next build".
+  experimental: {
+    cpus: 1,
+    workerThreads: false,
+  },
   webpack(config, { dev }) {
     if (dev) {
       // Reduce CPU/memory from file watching
