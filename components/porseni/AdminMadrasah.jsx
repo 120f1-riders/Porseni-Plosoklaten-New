@@ -62,16 +62,20 @@ function Dashboard({ user, peserta, loading }) {
   )
 }
 
-function FileUploadRow({ item, value, onUploaded }) {
+// Build a safe Drive folder path: [Lomba]/[Madrasah]/[Peserta]
+const drivePath = (...parts) => parts.filter((p) => p && String(p).trim()).map((s) => String(s).replace(/[\\/]+/g, '-').trim().slice(0, 120)).join('/')
+
+function FileUploadRow({ item, value, onUploaded, folderPath, disabled, disabledReason }) {
   const [busy, setBusy] = useState(false)
   const ref = useRef(null)
   const handle = async (e) => {
     const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
     if (!file) return
     if (file.size > 10 * 1024 * 1024) { toast.error('Ukuran file maksimal 10MB'); return }
     setBusy(true)
     try {
-      const res = await uploadFile(file)
+      const res = await uploadFile(file, folderPath)
       onUploaded(res)
       toast.success(`${item.label} terunggah`)
     } catch (err) { toast.error(err.message) } finally { setBusy(false) }
@@ -86,7 +90,7 @@ function FileUploadRow({ item, value, onUploaded }) {
         </div>
       </div>
       <input ref={ref} type="file" className="hidden" onChange={handle} accept={item.key === 'pas_photo' ? 'image/*' : 'image/*,application/pdf'} />
-      <Button type="button" size="sm" variant={value ? 'outline' : 'secondary'} disabled={busy} onClick={() => ref.current?.click()}>
+      <Button type="button" size="sm" variant={value ? 'outline' : 'secondary'} disabled={busy || disabled} title={disabled ? (disabledReason || '') : ''} onClick={() => ref.current?.click()}>
         {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
         <span className="ml-1">{value ? 'Ganti' : 'Unggah'}</span>
       </Button>
@@ -179,13 +183,23 @@ function Pendaftaran({ user, lomba, onDone }) {
             <Card className="p-6">
               <h3 className="font-semibold mb-1">Berkas Persyaratan</h3>
               <p className="text-xs text-muted-foreground mb-4 flex items-center gap-1">
-                <FolderTree className="h-3.5 w-3.5" /> Disimpan terstruktur: [Lomba]/[Madrasah]/[Peserta]
+                <FolderTree className="h-3.5 w-3.5" /> Disimpan terstruktur di Drive: [Lomba]/[Madrasah]/[Peserta]
               </p>
-              <div className="space-y-3">
-                {REQ_FILES.map((item) => (
-                  <FileUploadRow key={item.key} item={item} value={files[item.key]} onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
-                ))}
-              </div>
+              {(() => {
+                const selLomba = lomba.find((l) => l.id === form.lomba_id)
+                const ready = !!(form.lomba_id && form.participant_name.trim())
+                const folderPath = ready ? drivePath(selLomba?.name, user.madrasah_name || 'Umum', form.participant_name) : ''
+                return (
+                  <>
+                    {!ready && <p className="text-xs text-amber-600 mb-3">Isi <b>Nama Lengkap</b> & <b>Cabang Lomba</b> terlebih dahulu agar berkas tersimpan pada folder peserta yang benar.</p>}
+                    <div className="space-y-3">
+                      {REQ_FILES.map((item) => (
+                        <FileUploadRow key={item.key} item={item} value={files[item.key]} folderPath={folderPath} disabled={!ready} disabledReason="Isi Nama & Cabang Lomba dulu" onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
+                      ))}
+                    </div>
+                  </>
+                )
+              })()}
               <Button className="w-full mt-6" disabled={saving} onClick={submit}>
                 {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />} Daftarkan Peserta
               </Button>
@@ -197,7 +211,9 @@ function Pendaftaran({ user, lomba, onDone }) {
   )
 }
 
-function TeamMemberCard({ index, member, onChange }) {
+function TeamMemberCard({ index, member, onChange, lombaName, madrasahName }) {
+  const ready = !!member.participant_name.trim()
+  const folderPath = ready ? drivePath(lombaName, madrasahName, member.participant_name) : ''
   return (
     <Card className="p-4 border-primary/20">
       <div className="flex items-center gap-2 mb-3">
@@ -227,8 +243,9 @@ function TeamMemberCard({ index, member, onChange }) {
       </div>
       <div className="mt-3 space-y-2">
         <p className="text-xs text-muted-foreground">Berkas persyaratan (khusus anggota ini):</p>
+        {!ready && <p className="text-xs text-amber-600">Isi nama anggota dulu agar berkas tersimpan di folder peserta.</p>}
         {REQ_FILES.map((item) => (
-          <FileUploadRow key={item.key} item={item} value={member.files?.[item.key]} onUploaded={(res) => onChange({ files: { ...(member.files || {}), [item.key]: res } })} />
+          <FileUploadRow key={item.key} item={item} value={member.files?.[item.key]} folderPath={folderPath} disabled={!ready} disabledReason="Isi nama anggota dulu" onUploaded={(res) => onChange({ files: { ...(member.files || {}), [item.key]: res } })} />
         ))}
       </div>
     </Card>
@@ -349,7 +366,7 @@ function TeamPendaftaran({ user, lomba, onDone }) {
         <>
           <div className="grid lg:grid-cols-2 gap-4">
             {members.map((m, i) => (
-              <TeamMemberCard key={i} index={i} member={m} onChange={(patch) => updateMember(i, patch)} />
+              <TeamMemberCard key={i} index={i} member={m} onChange={(patch) => updateMember(i, patch)} lombaName={selected.name} madrasahName={user.madrasah_name} />
             ))}
           </div>
           <div className="flex justify-end">
@@ -446,7 +463,7 @@ function PersyaratanDialog({ peserta, open, onOpenChange, onSaved }) {
         <p className="text-xs text-muted-foreground -mt-2">Lengkapi seluruh berkas agar peserta diteruskan ke Panitia.</p>
         <div className="space-y-3 mt-2">
           {REQ_FILES.map((item) => (
-            <FileUploadRow key={item.key} item={item} value={files[item.key]} onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
+            <FileUploadRow key={item.key} item={item} value={files[item.key]} folderPath={drivePath(peserta.lomba_name, peserta.madrasah_name, peserta.participant_name)} onUploaded={(res) => setFiles((f) => ({ ...f, [item.key]: res }))} />
           ))}
         </div>
         <DialogFooter>
