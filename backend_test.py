@@ -7,7 +7,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "https://e88698cc-dcb7-42a3-aad7-bdcca643ed32.preview.emergentagent.com/api"
+BASE_URL = "https://porseni-superadmin.preview.emergentagent.com/api"
 
 def test_lomba_public():
     """Test 1: GET /api/lomba (public, no auth) returns HTTP 200 with JSON array"""
