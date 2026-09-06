@@ -8,7 +8,9 @@ const { createServer } = require('http')
 const next = require('next')
 
 const port = process.env.PORT || 3000
-const app = next({ dev: false })
+// Pin the Next.js app directory to this file's folder so the production
+// build (.next) is found regardless of Passenger's working directory (cPanel).
+const app = next({ dev: false, dir: __dirname })
 const handle = app.getRequestHandler()
 
 app.prepare().then(() => {
