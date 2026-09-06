@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
 import { api, uploadFile, fileUrl } from '@/lib/porseni/api'
 import { GENDERS, GENDER_LABEL, REQ_FILES } from '@/lib/porseni/constants'
-import { downloadPesertaTemplate, parsePesertaWorkbook } from '@/lib/porseni/excel'
+import { downloadPesertaTemplate, parsePesertaWorkbook, downloadTeamTemplate, parseTeamWorkbook } from '@/lib/porseni/excel'
 
 export default function AdminMadrasah({ view, user }) {
   const [lomba, setLomba] = useState([])
@@ -235,6 +235,54 @@ function TeamMemberCard({ index, member, onChange }) {
   )
 }
 
+function TeamBulkImport({ user, lomba, onDone }) {
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+  const doUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      const teams = await parseTeamWorkbook(file)
+      if (!teams.length) { toast.error('Tidak ada data tim pada file.'); return }
+      const byName = {}
+      lomba.forEach((l) => { if (l.type === 'kelompok') byName[l.name.trim().toLowerCase()] = l })
+      let okTeams = 0; let okMembers = 0
+      const errs = []
+      for (const t of teams) {
+        const l = byName[(t.lomba_name || '').trim().toLowerCase()]
+        if (!l) { errs.push(`Lomba kelompok "${t.lomba_name}" tidak ditemukan (tim ${t.madrasah_name})`); continue }
+        try {
+          const res = await api('/peserta/team', { method: 'POST', body: { lomba_id: l.id, madrasah_name: t.madrasah_name || user.madrasah_name, members: t.members } })
+          okTeams++; okMembers += res.count || t.members.length
+        } catch (err) { errs.push(`${t.lomba_name} - ${t.madrasah_name}: ${err.message}`) }
+      }
+      if (okTeams) toast.success(`${okTeams} tim (${okMembers} anggota) berhasil diimport. Lengkapi berkas tiap anggota di menu Daftar Peserta Saya.`, { duration: 8000 })
+      if (errs.length) toast.error(`${errs.length} gagal:\n` + errs.slice(0, 5).join('\n'), { duration: 9000 })
+      onDone()
+    } catch (err) { toast.error('Gagal membaca file: ' + err.message) } finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-6 mb-2 bg-emerald-50/60 border-emerald-200">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <FileSpreadsheet className="h-6 w-6 text-emerald-700 mt-0.5" />
+          <div>
+            <div className="font-semibold">Pendaftaran Tim Massal via Excel</div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">Unduh template, isi banyak tim sekaligus (satu baris = satu anggota; baris dengan Cabang Lomba + Nama Madrasah yang sama dikelompokkan menjadi satu tim). Setelah import, lengkapi berkas tiap anggota di menu <b>Daftar Peserta Saya</b>.</p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={() => downloadTeamTemplate(lomba)}><Download className="h-4 w-4 mr-1" />Template</Button>
+          <input ref={ref} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={doUpload} />
+          <Button disabled={busy} onClick={() => ref.current?.click()}>{busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}Upload Excel</Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function TeamPendaftaran({ user, lomba, onDone }) {
   const groupLomba = lomba.filter((l) => l.type === 'kelompok')
   const [lombaId, setLombaId] = useState('')
@@ -278,6 +326,7 @@ function TeamPendaftaran({ user, lomba, onDone }) {
 
   return (
     <div className="space-y-6">
+      <TeamBulkImport user={user} lomba={lomba} onDone={onDone} />
       <Card className="p-6 bg-emerald-50/60 border-emerald-200">
         <div className="grid sm:grid-cols-2 gap-4 items-end">
           <div className="space-y-1.5">

@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import {
   LayoutDashboard, UserPlus, Users, Trophy, ShieldCheck, Award, IdCard,
-  Printer, Upload, LogOut, GraduationCap, Menu, X, User, Cloud,
+  Printer, Upload, LogOut, GraduationCap, Menu, X, User, Cloud, Database,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { ROLE_LABEL } from '@/lib/porseni/constants'
@@ -22,6 +22,7 @@ const MENUS = {
     { id: 'sertifikat', label: 'Manajemen Sertifikat', icon: Award },
     { id: 'idcard', label: 'ID Card', icon: IdCard },
     { id: 'integrasi', label: 'Integrasi Google', icon: Cloud },
+    { id: 'backup', label: 'Backup & Restore', icon: Database },
     { id: 'profil', label: 'Profil Saya', icon: User },
   ],
   admin_madrasah: [
@@ -48,8 +49,10 @@ export default function Shell({ user, onLogout, onUserUpdate }) {
   const Sidebar = (
     <aside className="w-64 shrink-0 bg-sidebar text-sidebar-foreground flex flex-col h-full">
       <div className="p-5 border-b border-sidebar-border flex items-center gap-2">
-        <div className="h-9 w-9 rounded-lg bg-sidebar-primary/20 flex items-center justify-center">
-          <GraduationCap className="h-5 w-5 text-sidebar-primary" />
+        <div className="h-9 w-9 rounded-lg bg-sidebar-primary/20 flex items-center justify-center overflow-hidden">
+          {user.photo_url
+            ? <img src={user.photo_url} alt="Foto" className="h-full w-full object-cover" />
+            : <GraduationCap className="h-5 w-5 text-sidebar-primary" />}
         </div>
         <div className="leading-tight">
           <div className="font-bold text-sm">SIM Porseni</div>
@@ -101,7 +104,9 @@ export default function Shell({ user, onLogout, onUserUpdate }) {
       <div className="flex-1 flex flex-col min-w-0">
         <header className="md:hidden screen-only sticky top-0 z-40 bg-white border-b flex items-center justify-between px-4 py-3">
           <div className="flex items-center gap-2 text-primary font-bold">
-            <GraduationCap className="h-5 w-5" /> SIM Porseni
+            {user.photo_url
+              ? <img src={user.photo_url} alt="Foto" className="h-6 w-6 rounded object-cover" />
+              : <GraduationCap className="h-5 w-5" />} SIM Porseni
           </div>
           <Button size="icon" variant="ghost" onClick={() => setOpen(!open)}>
             {open ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}

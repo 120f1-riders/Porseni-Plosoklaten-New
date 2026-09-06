@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Users, CheckCircle2, Clock, Loader2, Printer, Upload, Award, FileText, Trash2, CheckCircle } from 'lucide-react'
+import { Users, CheckCircle2, Clock, Loader2, Printer, Upload, Award, FileText, Trash2 } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -73,29 +73,25 @@ function NomorCell({ p, onSave }) {
 }
 
 function DaftarPeserta({ lomba, peserta, loading, onChange }) {
-  const setStatus = async (id, status) => {
-    try { await api(`/peserta/${id}/status`, { method: 'PUT', body: { status } }); toast.success('Status diperbarui'); onChange() }
-    catch (e) { toast.error(e.message) }
-  }
   const setNomor = async (id, nomor_peserta) => {
-    try { await api(`/peserta/${id}`, { method: 'PUT', body: { nomor_peserta } }); toast.success('Nomor urut diperbarui'); onChange() }
+    try { await api(`/peserta/${id}`, { method: 'PUT', body: { nomor_peserta } }); toast.success('Nomor urut tampil diperbarui'); onChange() }
     catch (e) { toast.error(e.message) }
   }
-  const sorted = [...(peserta || [])].sort((a, b) => String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
+  const sorted = [...(peserta || [])].sort((a, b) => (Number(a.nomor_peserta) || 0) - (Number(b.nomor_peserta) || 0) || String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
   return (
     <div>
-      <PageHeader title="Daftar Peserta" desc={lomba ? `${lomba.name} — klik kolom No. Urut untuk mengubah urutan tampil` : ''} />
+      <PageHeader title="Daftar Peserta" desc={lomba ? `${lomba.name} — isi kolom No. Urut Tampil untuk mengatur urutan cetak (verifikasi peserta oleh Super Admin)` : ''} />
       <Card>
         {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : sorted.length === 0 ? <Empty /> : (
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead>No. Urut</TableHead>
+                <TableHead>No. Urut Tampil</TableHead>
                 <TableHead>Nama</TableHead>
+                <TableHead>L/P</TableHead>
                 <TableHead>Madrasah</TableHead>
                 <TableHead>Berkas</TableHead>
                 <TableHead>Status</TableHead>
-                <TableHead className="text-right">Aksi</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -103,20 +99,16 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
                 <TableRow key={p.id}>
                   <TableCell><NomorCell p={p} onSave={setNomor} /></TableCell>
                   <TableCell className="font-medium">{p.participant_name}</TableCell>
+                  <TableCell>{p.gender || '-'}</TableCell>
                   <TableCell>{p.madrasah_name}</TableCell>
                   <TableCell>
-                    <div className="flex gap-1">
+                    <div className="flex gap-1 flex-wrap">
                       {Object.entries(p.files || {}).map(([k, v]) => (
                         <a key={k} href={fileUrl(v.id)} target="_blank" rel="noreferrer" className="text-xs text-primary underline">{k}</a>
                       ))}
                     </div>
                   </TableCell>
                   <TableCell><StatusBadge status={p.status} /></TableCell>
-                  <TableCell className="text-right">
-                    {p.status !== 'verified'
-                      ? <Button size="sm" onClick={() => setStatus(p.id, 'verified')}><CheckCircle className="h-4 w-4 mr-1" />Verifikasi</Button>
-                      : <Button size="sm" variant="outline" onClick={() => setStatus(p.id, 'pending')}>Batalkan</Button>}
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -131,6 +123,7 @@ function IdCardCetak({ lomba, peserta, loading }) {
   const targets = (peserta || []).map((p) => ({
     label: `${p.nomor_peserta} - ${p.participant_name}`,
     filename: `IDCard_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
+    baseImage: lomba?.idcard_image_url || null,
     values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: p.lomba_name, nomor_peserta: 'No. ' + p.nomor_peserta, photo: p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null },
   }))
   return (
@@ -154,7 +147,9 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
   const doPrint = (m) => { setMode(m); setTimeout(() => window.print(), 150) }
   const crit = criteria.length ? criteria : ['Kriteria 1', 'Kriteria 2']
 
-  const rows = peserta.filter((p) => gender === 'all' ? true : p.gender === gender)
+  const rows = peserta
+    .filter((p) => gender === 'all' ? true : p.gender === gender)
+    .sort((a, b) => (Number(a.nomor_peserta) || 0) - (Number(b.nomor_peserta) || 0) || String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
   const genderLabel = gender === 'L' ? ' (Putra)' : gender === 'P' ? ' (Putri)' : ''
 
   const Header = (
@@ -243,6 +238,7 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
 
 function Hasil({ lomba, peserta, juara, hasil, onChange }) {
   const [uploading, setUploading] = useState(false)
+  const [gender, setGender] = useState('L')
   const ref = useRef(null)
   const verified = peserta.filter((p) => p.status === 'verified')
 
@@ -260,8 +256,8 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
 
   const assign = async (rank, value) => {
     try {
-      const body = isGroup ? { lomba_id: lomba.id, rank, madrasah_name: value, is_group: true } : { lomba_id: lomba.id, rank, peserta_id: value }
-      await api('/juara', { method: 'POST', body }); toast.success(`${rank} ditetapkan`); onChange()
+      const body = isGroup ? { lomba_id: lomba.id, rank, gender, madrasah_name: value, is_group: true } : { lomba_id: lomba.id, rank, gender, peserta_id: value }
+      await api('/juara', { method: 'POST', body }); toast.success(`${rank} (${gender === 'L' ? 'Putra' : 'Putri'}) ditetapkan`); onChange()
     }
     catch (e) { toast.error(e.message) }
   }
@@ -272,7 +268,8 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
   if (!lomba) return <Empty text="Belum ada lomba yang ditugaskan." />
 
   const isGroup = lomba.type === 'kelompok'
-  const madrasahOptions = Array.from(new Set(verified.map((p) => p.madrasah_name).filter(Boolean)))
+  const verifiedG = verified.filter((p) => p.gender === gender)
+  const madrasahOptions = Array.from(new Set(verifiedG.map((p) => p.madrasah_name).filter(Boolean)))
 
   return (
     <div>
@@ -297,10 +294,17 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
 
         <Card className="p-6">
           <h3 className="font-semibold mb-1 flex items-center gap-2"><Award className="h-4 w-4 text-primary" />Penetapan Juara {isGroup && <span className="text-xs font-normal text-muted-foreground">(Kelompok — per Madrasah)</span>}</h3>
-          <p className="text-sm text-muted-foreground mb-4">{isGroup ? 'Pilih Madrasah pemenang untuk setiap peringkat. Sertifikat dapat dicetak untuk seluruh anggota regu.' : 'Pilih peserta untuk setiap peringkat.'}</p>
+          <p className="text-sm text-muted-foreground mb-3">Juara dipisah Putra & Putri. Pilih jenis kelamin, lalu tetapkan pemenang tiap peringkat.</p>
+          <div className="flex gap-2 mb-4">
+            {GENDERS.map((g) => (
+              <Button key={g.value} size="sm" variant={gender === g.value ? 'default' : 'outline'} onClick={() => setGender(g.value)}>
+                {g.value === 'L' ? 'Putra' : 'Putri'}
+              </Button>
+            ))}
+          </div>
           <div className="space-y-3">
             {RANKS.map((rank) => {
-              const current = juara.find((j) => j.rank === rank)
+              const current = juara.find((j) => j.rank === rank && (j.gender || '') === gender)
               return (
                 <div key={rank} className="flex items-center gap-2">
                   <div className="w-24 text-sm font-medium">{rank}</div>
@@ -309,15 +313,15 @@ function Hasil({ lomba, peserta, juara, hasil, onChange }) {
                       <SelectTrigger className="flex-1"><SelectValue placeholder="Pilih madrasah" /></SelectTrigger>
                       <SelectContent>
                         {madrasahOptions.map((m) => <SelectItem key={m} value={m}>{m}</SelectItem>)}
-                        {madrasahOptions.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta terverifikasi</div>}
+                        {madrasahOptions.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta {gender === 'L' ? 'putra' : 'putri'} terverifikasi</div>}
                       </SelectContent>
                     </Select>
                   ) : (
                     <Select value={current?.peserta_id || ''} onValueChange={(v) => assign(rank, v)}>
                       <SelectTrigger className="flex-1"><SelectValue placeholder="Pilih peserta" /></SelectTrigger>
                       <SelectContent>
-                        {verified.map((p) => <SelectItem key={p.id} value={p.id}>{p.nomor_peserta} - {p.participant_name}</SelectItem>)}
-                        {verified.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta terverifikasi</div>}
+                        {verifiedG.map((p) => <SelectItem key={p.id} value={p.id}>{p.nomor_peserta} - {p.participant_name}</SelectItem>)}
+                        {verifiedG.length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada peserta {gender === 'L' ? 'putra' : 'putri'} terverifikasi</div>}
                       </SelectContent>
                     </Select>
                   )}

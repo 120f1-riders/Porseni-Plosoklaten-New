@@ -41,12 +41,14 @@ export default function TemplateStudio({ type, defaultFields, targets, loadingTa
     catch (e) { toast.error(e.message) } finally { setSaving(false) }
   }
   const generateAll = async () => {
-    if (!imageUrl) return toast.error('Template belum tersedia')
+    if (!imageUrl && !targets.some((t) => t.baseImage)) return toast.error('Template belum tersedia')
     if (!targets.length) return toast.error('Belum ada data untuk digenerate')
     setGenerating(true)
     try {
       for (const t of targets) {
-        const dataUrl = await renderOverlay({ templateSrc: imageUrl, fields, values: t.values })
+        const src = t.baseImage || imageUrl
+        if (!src) continue
+        const dataUrl = await renderOverlay({ templateSrc: src, fields, values: t.values })
         downloadDataUrl(dataUrl, t.filename)
         await new Promise((r) => setTimeout(r, 250))
       }
@@ -54,7 +56,7 @@ export default function TemplateStudio({ type, defaultFields, targets, loadingTa
     } catch (e) { toast.error('Gagal generate: ' + e.message) } finally { setGenerating(false) }
   }
   const generateOne = async (t) => {
-    try { const dataUrl = await renderOverlay({ templateSrc: imageUrl, fields, values: t.values }); downloadDataUrl(dataUrl, t.filename) }
+    try { const src = t.baseImage || imageUrl; if (!src) return toast.error('Template belum tersedia'); const dataUrl = await renderOverlay({ templateSrc: src, fields, values: t.values }); downloadDataUrl(dataUrl, t.filename) }
     catch (e) { toast.error(e.message) }
   }
 
@@ -106,7 +108,7 @@ export default function TemplateStudio({ type, defaultFields, targets, loadingTa
             <h3 className="font-semibold">Generate ({targets.length})</h3>
             <p className="text-sm text-muted-foreground">Hasil diunduh sebagai gambar PNG siap cetak.</p>
           </div>
-          <Button onClick={generateAll} disabled={generating || !imageUrl || !targets.length}>
+          <Button onClick={generateAll} disabled={generating || (!imageUrl && !targets.some((t) => t.baseImage)) || !targets.length}>
             {generating ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}Unduh Semua
           </Button>
         </div>
@@ -115,7 +117,7 @@ export default function TemplateStudio({ type, defaultFields, targets, loadingTa
             {targets.map((t, i) => (
               <div key={i} className="flex items-center justify-between border rounded-lg px-3 py-2 text-sm">
                 <span className="truncate">{t.label}</span>
-                <Button size="icon" variant="ghost" disabled={!imageUrl} onClick={() => generateOne(t)}><Download className="h-4 w-4" /></Button>
+                <Button size="icon" variant="ghost" disabled={!imageUrl && !t.baseImage} onClick={() => generateOne(t)}><Download className="h-4 w-4" /></Button>
               </div>
             ))}
           </div>

@@ -111,7 +111,7 @@ function cleanUserAdmin(doc) {
   return rest
 }
 
-const REQUIRED_FILE_KEYS = ['akte', 'surat_ket', 'pas_photo']
+const REQUIRED_FILE_KEYS = ['akte', 'surat_ket', 'pas_photo', 'nisn_doc', 'raport']
 
 function computeComplete(doc) {
   const files = doc.files || {}
@@ -390,7 +390,7 @@ async function handleRoute(request, { params }) {
       const u = await getUser(request)
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
-      const doc = { id: uuidv4(), name: b.name, category: b.category || 'Olahraga', type: b.type || 'individu', team_size: b.team_size ? Number(b.team_size) : null, judging_criteria: b.judging_criteria || [], created_at: new Date() }
+      const doc = { id: uuidv4(), name: b.name, category: b.category || 'Olahraga', type: b.type || 'individu', team_size: b.team_size ? Number(b.team_size) : null, idcard_image_url: b.idcard_image_url || null, judging_criteria: b.judging_criteria || [], created_at: new Date() }
       await db.collection('lomba').insertOne(doc)
       return json(clean(doc))
     }
@@ -399,7 +399,7 @@ async function handleRoute(request, { params }) {
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
       const set = {}
-      ;['name', 'category', 'type', 'team_size', 'judging_criteria'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      ;['name', 'category', 'type', 'team_size', 'idcard_image_url', 'judging_criteria'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
       await db.collection('lomba').updateOne({ id: p[1] }, { $set: set })
       const doc = await db.collection('lomba').findOne({ id: p[1] })
       return json(clean(doc))
@@ -417,6 +417,28 @@ async function handleRoute(request, { params }) {
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const list = await db.collection('users').find({}).sort({ created_at: -1 }).toArray()
       return json(list.map(cleanUserAdmin))
+    }
+    // Create user directly (super_admin) — used by manual add & bulk Excel import; auto-verified
+    if (route === '/users' && method === 'POST') {
+      const u = await getUser(request)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
+      const b = await request.json()
+      if (!b.name || !b.email || !b.role) return json({ error: 'Data tidak lengkap (nama, user, peran wajib)' }, 400)
+      const email = String(b.email).toLowerCase()
+      const exists = await db.collection('users').findOne({ email })
+      if (exists) return json({ error: 'User sudah terdaftar' }, 400)
+      const pw = b.password ? String(b.password) : '12345678'
+      const user = {
+        id: uuidv4(), name: b.name, email,
+        password: hashPw(pw), password_plain: pw,
+        role: b.role,
+        madrasah_name: b.madrasah_name || null,
+        assigned_lomba_id: b.assigned_lomba_id || null,
+        status: 'verified',
+        token: uuidv4(), created_at: new Date(),
+      }
+      await db.collection('users').insertOne(user)
+      return json(cleanUserAdmin(user))
     }
     if (p[0] === 'users' && p[1] && method === 'PUT') {
       const u = await getUser(request)
@@ -524,7 +546,7 @@ async function handleRoute(request, { params }) {
     }
     if (p[0] === 'peserta' && p[1] && p[2] === 'status' && method === 'PUT') {
       const u = await getUser(request)
-      if (!u) return json({ error: 'Akses ditolak' }, 403)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Hanya Super Admin yang dapat memverifikasi peserta' }, 403)
       const b = await request.json()
       await db.collection('peserta').updateOne({ id: p[1] }, { $set: { status: b.status } })
       const doc = await db.collection('peserta').findOne({ id: p[1] })
@@ -589,15 +611,16 @@ async function handleRoute(request, { params }) {
       const u = await getUser(request)
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
       const b = await request.json()
-      // one winner per rank per lomba -> upsert
-      await db.collection('juara').deleteMany({ lomba_id: b.lomba_id, rank: b.rank })
+      const gender = b.gender === 'P' ? 'P' : (b.gender === 'L' ? 'L' : '')
+      // one winner per rank per gender per lomba -> upsert
+      await db.collection('juara').deleteMany({ lomba_id: b.lomba_id, rank: b.rank, gender })
       const lomba = await db.collection('lomba').findOne({ id: b.lomba_id })
       const isGroup = (b.is_group !== undefined) ? !!b.is_group : (lomba && lomba.type === 'kelompok')
       let doc
       if (isGroup) {
         // group winner keyed by madrasah
         doc = {
-          id: uuidv4(), lomba_id: b.lomba_id, peserta_id: null, rank: b.rank,
+          id: uuidv4(), lomba_id: b.lomba_id, peserta_id: null, rank: b.rank, gender,
           is_group: true,
           participant_name: b.madrasah_name || '', madrasah_name: b.madrasah_name || '',
           certificate_url: null, created_at: new Date(),
@@ -605,7 +628,7 @@ async function handleRoute(request, { params }) {
       } else {
         const peserta = await db.collection('peserta').findOne({ id: b.peserta_id })
         doc = {
-          id: uuidv4(), lomba_id: b.lomba_id, peserta_id: b.peserta_id, rank: b.rank,
+          id: uuidv4(), lomba_id: b.lomba_id, peserta_id: b.peserta_id, rank: b.rank, gender,
           is_group: false,
           participant_name: peserta ? peserta.participant_name : '', madrasah_name: peserta ? peserta.madrasah_name : '',
           certificate_url: null, created_at: new Date(),
@@ -641,6 +664,44 @@ async function handleRoute(request, { params }) {
       }
       const doc = await db.collection('templates').findOne({ type: b.type })
       return json(clean(doc))
+    }
+
+    // ---------- BACKUP & RESTORE (super_admin) ----------
+    const BACKUP_COLLECTIONS = ['users', 'lomba', 'peserta', 'hasil', 'juara', 'templates', 'files', 'settings']
+    if (route === '/admin/backup' && method === 'GET') {
+      const u = await getUser(request)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
+      const data = {}
+      for (const c of BACKUP_COLLECTIONS) {
+        const docs = await db.collection(c).find({}).toArray()
+        data[c] = docs.map((d) => { const { _id, ...rest } = d; return rest })
+      }
+      const payload = { app: 'sim-porseni', version: 1, exported_at: new Date().toISOString(), collections: data }
+      return json(payload)
+    }
+    if (route === '/admin/restore' && method === 'POST') {
+      const u = await getUser(request)
+      if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
+      const b = await request.json()
+      const cols = b && b.collections ? b.collections : null
+      if (!cols || typeof cols !== 'object') return json({ error: 'Format backup tidak valid' }, 400)
+      const summary = {}
+      for (const c of BACKUP_COLLECTIONS) {
+        if (!Array.isArray(cols[c])) continue
+        // preserve current super_admin session so operator is not locked out
+        const clean = cols[c].map((d) => { const { _id, ...rest } = d; return rest })
+        await db.collection(c).deleteMany({})
+        if (clean.length) await db.collection(c).insertMany(clean)
+        summary[c] = clean.length
+      }
+      // ensure current super_admin still exists & keeps a valid token
+      const meStill = await db.collection('users').findOne({ id: u.id })
+      if (meStill) {
+        await db.collection('users').updateOne({ id: u.id }, { $set: { token: u.token, status: 'verified' } })
+      } else {
+        await db.collection('users').insertOne({ ...u })
+      }
+      return json({ ok: true, restored: summary })
     }
 
     return json({ error: `Route ${route} not found` }, 404)

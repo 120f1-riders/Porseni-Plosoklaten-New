@@ -20,6 +20,7 @@ import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/s
 import TemplateStudio from '@/components/porseni/TemplateStudio'
 import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, GENDERS, ROLE_LABEL, CERT_DEFAULT_FIELDS, CERT_PANITIA_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl, getToken } from '@/lib/porseni/api'
+import { downloadLombaTemplate, parseLombaWorkbook, downloadUserTemplate, parseUserWorkbook } from '@/lib/porseni/excel'
 
 export default function SuperAdmin({ view }) {
   if (view === 'lomba') return <ManajemenLomba />
@@ -29,6 +30,7 @@ export default function SuperAdmin({ view }) {
   if (view === 'sertifikat') return <Sertifikat />
   if (view === 'idcard') return <IdCardManager />
   if (view === 'integrasi') return <IntegrasiGoogle />
+  if (view === 'backup') return <BackupRestore />
   return <Dashboard />
 }
 
@@ -233,6 +235,69 @@ function Dashboard() {
 }
 
 /* ---------------- MANAJEMEN LOMBA ---------------- */
+function IdCardImageUpload({ value, onChange }) {
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+  const handle = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    if (file.size > 10 * 1024 * 1024) return toast.error('Ukuran maksimal 10MB')
+    setBusy(true)
+    try { const up = await uploadFile(file); onChange(fileUrl(up.id)); toast.success('Gambar ID Card terunggah') }
+    catch (err) { toast.error(err.message) } finally { setBusy(false) }
+  }
+  return (
+    <div className="flex items-center gap-2">
+      {value ? <img src={value} alt="ID Card" className="h-12 w-20 border rounded object-contain bg-white" /> : <div className="h-12 w-20 border border-dashed rounded flex items-center justify-center text-[10px] text-muted-foreground">Belum ada</div>}
+      <input ref={ref} type="file" accept="image/*" className="hidden" onChange={handle} />
+      <Button type="button" size="sm" variant="outline" disabled={busy} onClick={() => ref.current?.click()}>{busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}{value ? 'Ganti' : 'Unggah'}</Button>
+      {value && <Button type="button" size="sm" variant="ghost" className="text-destructive" onClick={() => onChange('')}>Hapus</Button>}
+    </div>
+  )
+}
+
+function LombaBulkImport({ onDone }) {
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+  const doUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      const rows = await parseLombaWorkbook(file)
+      if (!rows.length) { toast.error('Tidak ada data lomba pada file.'); return }
+      let ok = 0; const errs = []
+      for (const r of rows) {
+        try { await api('/lomba', { method: 'POST', body: r }); ok++ }
+        catch (err) { errs.push(`${r.name}: ${err.message}`) }
+      }
+      if (ok) toast.success(`${ok} cabang lomba berhasil diimport.`)
+      if (errs.length) toast.error(`${errs.length} gagal:\n` + errs.slice(0, 5).join('\n'), { duration: 8000 })
+      onDone()
+    } catch (err) { toast.error('Gagal membaca file: ' + err.message) } finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-5 mb-4 bg-emerald-50/60 border-emerald-200">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <FileSpreadsheet className="h-6 w-6 text-emerald-700 mt-0.5" />
+          <div>
+            <div className="font-semibold">Upload Massal Cabang Lomba via Excel</div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">Unduh template, isi daftar cabang lomba (kolom Jenis diisi Individu/Kelompok), lalu unggah kembali.</p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={downloadLombaTemplate}><Download className="h-4 w-4 mr-1" />Template</Button>
+          <input ref={ref} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={doUpload} />
+          <Button disabled={busy} onClick={() => ref.current?.click()}>{busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}Upload Excel</Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function ManajemenLomba() {
   const [list, setList] = useState([])
   const [loading, setLoading] = useState(true)
@@ -243,12 +308,12 @@ function ManajemenLomba() {
   const load = async () => { setLoading(true); try { setList(await api('/lomba')) } catch (e) { toast.error(e.message) } finally { setLoading(false) } }
   useEffect(() => { load() }, [])
 
-  const openNew = () => { setEdit(null); setForm({ name: '', category: 'Olahraga', type: 'individu', team_size: '', criteria: '' }); setOpen(true) }
-  const openEdit = (l) => { setEdit(l); setForm({ name: l.name, category: l.category, type: l.type || 'individu', team_size: l.team_size || '', criteria: (l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') }); setOpen(true) }
+  const openNew = () => { setEdit(null); setForm({ name: '', category: 'Olahraga', type: 'individu', team_size: '', idcard_image_url: '', criteria: '' }); setOpen(true) }
+  const openEdit = (l) => { setEdit(l); setForm({ name: l.name, category: l.category, type: l.type || 'individu', team_size: l.team_size || '', idcard_image_url: l.idcard_image_url || '', criteria: (l.judging_criteria || []).map((c) => (typeof c === 'string' ? c : c.name)).join(', ') }); setOpen(true) }
 
   const save = async () => {
     if (!form.name) return toast.error('Nama lomba wajib diisi')
-    const body = { name: form.name, category: form.category, type: form.type, team_size: form.type === 'kelompok' ? (Number(form.team_size) || null) : null, judging_criteria: form.criteria.split(',').map((s) => s.trim()).filter(Boolean) }
+    const body = { name: form.name, category: form.category, type: form.type, team_size: form.type === 'kelompok' ? (Number(form.team_size) || null) : null, idcard_image_url: form.idcard_image_url || null, judging_criteria: form.criteria.split(',').map((s) => s.trim()).filter(Boolean) }
     try {
       if (edit) await api(`/lomba/${edit.id}`, { method: 'PUT', body })
       else await api('/lomba', { method: 'POST', body })
@@ -262,6 +327,7 @@ function ManajemenLomba() {
       <PageHeader title="Manajemen Lomba" desc="Kelola cabang lomba Olahraga & Seni">
         <Button onClick={openNew}><Plus className="h-4 w-4 mr-1" />Tambah Lomba</Button>
       </PageHeader>
+      <LombaBulkImport onDone={load} />
       <Card>
         {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : list.length === 0 ? <Empty text="Belum ada lomba. Tambahkan cabang lomba pertama." /> : (
           <Table>
@@ -312,6 +378,11 @@ function ManajemenLomba() {
               </div>
             )}
             <div className="space-y-1.5"><Label>Kriteria Penilaian (pisahkan dengan koma)</Label><Textarea value={form.criteria} onChange={(e) => setForm({ ...form, criteria: e.target.value })} placeholder="Kerapian, Keindahan, Ketepatan" /></div>
+            <div className="space-y-1.5">
+              <Label>Gambar ID Card (khusus lomba ini, opsional)</Label>
+              <IdCardImageUpload value={form.idcard_image_url} onChange={(v) => setForm({ ...form, idcard_image_url: v })} />
+              <p className="text-xs text-muted-foreground">Jika diisi, ID Card peserta lomba ini memakai gambar ini. Jika kosong, memakai template ID Card umum.</p>
+            </div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setOpen(false)}>Batal</Button><Button onClick={save}>Simpan</Button></DialogFooter>
         </DialogContent>
@@ -321,6 +392,55 @@ function ManajemenLomba() {
 }
 
 /* ---------------- MANAJEMEN PENGGUNA ---------------- */
+function UserBulkImport({ lomba, onDone }) {
+  const [busy, setBusy] = useState(false)
+  const ref = useRef(null)
+  const doUpload = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    setBusy(true)
+    try {
+      const rows = await parseUserWorkbook(file)
+      if (!rows.length) { toast.error('Tidak ada data pengguna pada file.'); return }
+      const byName = {}
+      lomba.forEach((l) => { byName[l.name.trim().toLowerCase()] = l.id })
+      let ok = 0; const errs = []
+      for (const r of rows) {
+        const body = {
+          name: r.name, email: r.email, password: r.password || '12345678', role: r.role,
+          madrasah_name: r.role === 'admin_madrasah' ? r.madrasah_name : null,
+          assigned_lomba_id: r.role === 'panitia' ? (byName[(r.lomba_name || '').trim().toLowerCase()] || null) : null,
+        }
+        if (r.role === 'panitia' && !body.assigned_lomba_id) { errs.push(`${r.name}: cabang lomba "${r.lomba_name}" tidak ditemukan`); continue }
+        try { await api('/users', { method: 'POST', body }); ok++ }
+        catch (err) { errs.push(`${r.name} (${r.email}): ${err.message}`) }
+      }
+      if (ok) toast.success(`${ok} pengguna berhasil dibuat (terverifikasi, sandi default 12345678 bila kosong).`, { duration: 8000 })
+      if (errs.length) toast.error(`${errs.length} gagal:\n` + errs.slice(0, 5).join('\n'), { duration: 9000 })
+      onDone()
+    } catch (err) { toast.error('Gagal membaca file: ' + err.message) } finally { setBusy(false) }
+  }
+  return (
+    <Card className="p-5 mb-4 bg-emerald-50/60 border-emerald-200">
+      <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+        <div className="flex items-start gap-3">
+          <FileSpreadsheet className="h-6 w-6 text-emerald-700 mt-0.5" />
+          <div>
+            <div className="font-semibold">Upload Massal Pengguna via Excel</div>
+            <p className="text-sm text-muted-foreground mt-1 max-w-xl">Unduh template, isi daftar pengguna (Peran: admin_madrasah / panitia). Akun langsung terverifikasi; sandi kosong otomatis <b>12345678</b>.</p>
+          </div>
+        </div>
+        <div className="flex gap-2 shrink-0">
+          <Button variant="outline" onClick={() => downloadUserTemplate(lomba)}><Download className="h-4 w-4 mr-1" />Template</Button>
+          <input ref={ref} type="file" accept=".xlsx,.xls,.csv" className="hidden" onChange={doUpload} />
+          <Button disabled={busy} onClick={() => ref.current?.click()}>{busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}Upload Excel</Button>
+        </div>
+      </div>
+    </Card>
+  )
+}
+
 function ManajemenPengguna() {
   const [users, setUsers] = useState([])
   const [lomba, setLomba] = useState([])
@@ -341,6 +461,8 @@ function ManajemenPengguna() {
 
       <KopSuratCard />
 
+      <UserBulkImport lomba={lomba} onDone={load} />
+
       {resetCount > 0 && (
         <Card className="p-4 mb-4 bg-amber-50 border-amber-300 flex items-center gap-2">
           <BellRing className="h-5 w-5 text-amber-600" />
@@ -351,7 +473,7 @@ function ManajemenPengguna() {
       <Card>
         {loading ? <div className="p-8"><Loader2 className="h-6 w-6 animate-spin text-primary" /></div> : (
           <Table>
-            <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>Email</TableHead><TableHead>Peran</TableHead><TableHead>Keterangan</TableHead><TableHead>Kata Sandi</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Nama</TableHead><TableHead>User</TableHead><TableHead>Peran</TableHead><TableHead>Keterangan</TableHead><TableHead>Kata Sandi</TableHead><TableHead>Status</TableHead><TableHead className="text-right">Aksi</TableHead></TableRow></TableHeader>
             <TableBody>
               {users.map((u) => (
                 <TableRow key={u.id} className={u.reset_requested ? 'bg-amber-50/60' : ''}>
@@ -483,15 +605,19 @@ function DataPendaftar() {
   const [genderFilter, setGenderFilter] = useState('all')
   const [kopSurat, setKopSurat] = useState(null)
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [p, l, tpl] = await Promise.all([api('/peserta'), api('/lomba'), api('/templates?type=kopsurat').catch(() => [])])
-        setPeserta(p || []); setLomba(l || [])
-        setKopSurat(tpl && tpl[0] && tpl[0].image_url ? tpl[0].image_url : null)
-      } catch (e) { toast.error(e.message) } finally { setLoading(false) }
-    })()
-  }, [])
+  const load = async () => {
+    setLoading(true)
+    try {
+      const [p, l, tpl] = await Promise.all([api('/peserta'), api('/lomba'), api('/templates?type=kopsurat').catch(() => [])])
+      setPeserta(p || []); setLomba(l || [])
+      setKopSurat(tpl && tpl[0] && tpl[0].image_url ? tpl[0].image_url : null)
+    } catch (e) { toast.error(e.message) } finally { setLoading(false) }
+  }
+  useEffect(() => { load() }, [])
+  const verify = async (id, status) => {
+    try { await api(`/peserta/${id}/status`, { method: 'PUT', body: { status } }); toast.success(status === 'verified' ? 'Peserta diverifikasi' : 'Verifikasi dibatalkan'); load() }
+    catch (e) { toast.error(e.message) }
+  }
 
   const rows = peserta
     .filter((p) => lombaFilter === 'all' ? true : p.lomba_id === lombaFilter)
@@ -575,6 +701,7 @@ function DataPendaftar() {
                   <TableHead>Cabang Lomba</TableHead>
                   <TableHead>Kelengkapan</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead className="text-right">Aksi</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -587,6 +714,11 @@ function DataPendaftar() {
                     <TableCell>{p.lomba_name}</TableCell>
                     <TableCell>{p.complete ? <Badge className="bg-emerald-600 text-white">Lengkap</Badge> : <Badge variant="outline" className="text-amber-700 border-amber-300">Belum</Badge>}</TableCell>
                     <TableCell><StatusBadge status={p.status} /></TableCell>
+                    <TableCell className="text-right whitespace-nowrap">
+                      {p.status !== 'verified'
+                        ? <Button size="sm" disabled={!p.complete} title={!p.complete ? 'Berkas belum lengkap' : ''} onClick={() => verify(p.id, 'verified')}><CheckCircle className="h-4 w-4 mr-1" />Verifikasi</Button>
+                        : <Button size="sm" variant="outline" onClick={() => verify(p.id, 'pending')}>Batalkan</Button>}
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -764,6 +896,7 @@ function SertifikatJuara() {
   const [raw, setRaw] = useState({ loading: true, juara: [], peserta: [], lomba: [] })
   const [groupMode, setGroupMode] = useState('peserta') // 'peserta' | 'regu'
   const [lombaFilter, setLombaFilter] = useState('all')
+  const [includePhoto, setIncludePhoto] = useState(true)
 
   useEffect(() => {
     (async () => {
@@ -776,39 +909,42 @@ function SertifikatJuara() {
 
   const lm = Object.fromEntries((raw.lomba || []).map((l) => [l.id, l.name]))
   const pesertaById = Object.fromEntries((raw.peserta || []).map((p) => [p.id, p]))
-  const photoOf = (p) => (p && p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null)
+  const photoOf = (p) => (includePhoto && p && p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null)
+  const gLabel = (g) => (g === 'L' ? 'Putra' : g === 'P' ? 'Putri' : '')
   const juaraFiltered = (raw.juara || []).filter((j) => (lombaFilter === 'all' ? true : j.lomba_id === lombaFilter))
   const targets = []
   for (const j of juaraFiltered) {
     const lombaName = lm[j.lomba_id] || ''
+    const gl = gLabel(j.gender)
+    const rankLabel = gl ? `${j.rank} ${gl}` : j.rank
     if (j.is_group) {
       if (groupMode === 'regu') {
         targets.push({
-          label: `${j.rank} - ${j.madrasah_name} (Regu)`,
-          filename: `Sertifikat_${j.rank}_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
-          values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: null },
+          label: `${rankLabel} - ${j.madrasah_name} (Regu)`,
+          filename: `Sertifikat_${j.rank}_${gl}_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
+          values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: rankLabel, photo: null },
         })
       } else {
-        const members = (raw.peserta || []).filter((p) => p.lomba_id === j.lomba_id && p.madrasah_name === j.madrasah_name)
+        const members = (raw.peserta || []).filter((p) => p.lomba_id === j.lomba_id && p.madrasah_name === j.madrasah_name && (j.gender ? p.gender === j.gender : true))
         if (members.length === 0) {
           targets.push({
-            label: `${j.rank} - ${j.madrasah_name} (tidak ada anggota)`,
-            filename: `Sertifikat_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
-            values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: null },
+            label: `${rankLabel} - ${j.madrasah_name} (tidak ada anggota)`,
+            filename: `Sertifikat_${gl}_${(j.madrasah_name || 'regu').replace(/\s+/g, '_')}.png`,
+            values: { participant_name: j.madrasah_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: rankLabel, photo: null },
           })
         }
         members.forEach((p) => targets.push({
-          label: `${j.rank} - ${p.participant_name} (${j.madrasah_name})`,
+          label: `${rankLabel} - ${p.participant_name} (${j.madrasah_name})`,
           filename: `Sertifikat_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
-          values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: photoOf(p) },
+          values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: lombaName, rank: rankLabel, photo: photoOf(p) },
         }))
       }
     } else {
       const p = pesertaById[j.peserta_id]
       targets.push({
-        label: `${j.rank} - ${j.participant_name}`,
+        label: `${rankLabel} - ${j.participant_name}`,
         filename: `Sertifikat_${(j.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
-        values: { participant_name: j.participant_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: j.rank, photo: photoOf(p) },
+        values: { participant_name: j.participant_name, madrasah_name: j.madrasah_name, lomba_name: lombaName, rank: rankLabel, photo: photoOf(p) },
       })
     }
   }
@@ -818,6 +954,12 @@ function SertifikatJuara() {
   return (
     <div>
       <LombaFilterBar lomba={raw.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
+      <Card className="p-4 mb-4 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium">Foto pada sertifikat:</span>
+        <Button size="sm" variant={includePhoto ? 'default' : 'outline'} onClick={() => setIncludePhoto(true)}>Sertakan Foto</Button>
+        <Button size="sm" variant={!includePhoto ? 'default' : 'outline'} onClick={() => setIncludePhoto(false)}>Tanpa Foto</Button>
+        <span className="text-xs text-muted-foreground">Foto peserta diambil dari pas photo (opsional).</span>
+      </Card>
       {hasGroup && (
         <Card className="p-4 mb-6 flex flex-wrap items-center gap-3">
           <span className="text-sm font-medium">Mode Sertifikat Kelompok:</span>
@@ -830,7 +972,7 @@ function SertifikatJuara() {
         defaultFields={CERT_DEFAULT_FIELDS}
         targets={targets}
         loadingTargets={raw.loading}
-        sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', rank: 'Juara 1' }}
+        sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', rank: 'Juara 1 Putra' }}
       />
     </div>
   )
@@ -839,6 +981,7 @@ function SertifikatJuara() {
 function SertifikatPanitia() {
   const [state, setState] = useState({ loading: true, users: [], lomba: [] })
   const [lombaFilter, setLombaFilter] = useState('all')
+  const [includePhoto, setIncludePhoto] = useState(true)
   useEffect(() => {
     (async () => {
       try {
@@ -854,17 +997,23 @@ function SertifikatPanitia() {
     .map((u) => ({
       label: `${u.name} — ${lm[u.assigned_lomba_id] || '-'}`,
       filename: `Sertifikat_Panitia_${(u.name || 'panitia').replace(/\s+/g, '_')}.png`,
-      values: { name: u.name, role_label: 'Panitia / Juri', lomba_name: lm[u.assigned_lomba_id] || '-', photo: u.photo_url || null },
+      values: { name: u.name, lomba_name: lm[u.assigned_lomba_id] || '-', photo: includePhoto ? (u.photo_url || null) : null },
     }))
   return (
     <div>
       <LombaFilterBar lomba={state.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
+      <Card className="p-4 mb-4 flex flex-wrap items-center gap-3">
+        <span className="text-sm font-medium">Foto pada sertifikat:</span>
+        <Button size="sm" variant={includePhoto ? 'default' : 'outline'} onClick={() => setIncludePhoto(true)}>Sertakan Foto</Button>
+        <Button size="sm" variant={!includePhoto ? 'default' : 'outline'} onClick={() => setIncludePhoto(false)}>Tanpa Foto</Button>
+        <span className="text-xs text-muted-foreground">Foto diambil dari foto profil panitia (opsional).</span>
+      </Card>
       <TemplateStudio
         type="certificate_panitia"
         defaultFields={CERT_PANITIA_FIELDS}
         targets={targets}
         loadingTargets={state.loading}
-        sample={{ name: 'Budi Santoso', role_label: 'Panitia / Juri', lomba_name: 'Futsal' }}
+        sample={{ name: 'Budi Santoso', lomba_name: 'Futsal' }}
       />
     </div>
   )
@@ -896,16 +1045,22 @@ function IdCardPeserta() {
       } catch (e) { toast.error(e.message); setState({ loading: false, peserta: [], lomba: [] }) }
     })()
   }, [])
+  const lmImg = Object.fromEntries((state.lomba || []).map((l) => [l.id, l.idcard_image_url || null]))
   const targets = (state.peserta || [])
     .filter((p) => (lombaFilter === 'all' ? true : p.lomba_id === lombaFilter))
     .map((p) => ({
       label: `${p.nomor_peserta} - ${p.participant_name}`,
       filename: `IDCard_${(p.participant_name || 'peserta').replace(/\s+/g, '_')}.png`,
+      baseImage: lmImg[p.lomba_id] || null,
       values: { participant_name: p.participant_name, madrasah_name: p.madrasah_name, lomba_name: p.lomba_name, nomor_peserta: 'No. ' + p.nomor_peserta, photo: p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null },
     }))
   return (
     <div>
       <LombaFilterBar lomba={state.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
+      <Card className="p-4 mb-4 text-sm text-muted-foreground flex items-start gap-2">
+        <ImageIcon className="h-4 w-4 mt-0.5 shrink-0 text-primary" />
+        Lomba yang memiliki <b>Gambar ID Card</b> sendiri (diatur di Manajemen Lomba) akan otomatis memakai gambar tersebut. Lomba tanpa gambar khusus memakai template umum di bawah ini.
+      </Card>
       <TemplateStudio type="idcard_peserta" defaultFields={IDCARD_PESERTA_FIELDS} targets={targets} loadingTargets={state.loading}
         sample={{ participant_name: 'Ahmad Fauzi', madrasah_name: 'MI Al-Hidayah', lomba_name: 'Kaligrafi', nomor_peserta: 'No. 001' }} />
     </div>
@@ -937,6 +1092,66 @@ function IdCardPanitia() {
       <LombaFilterBar lomba={state.lomba || []} value={lombaFilter} onChange={setLombaFilter} />
       <TemplateStudio type="idcard_panitia" defaultFields={IDCARD_PANITIA_FIELDS} targets={targets} loadingTargets={state.loading}
         sample={{ name: 'Budi Santoso', role_label: 'Panitia / Juri', lomba_name: 'Futsal' }} />
+    </div>
+  )
+}
+
+
+/* ---------------- BACKUP & RESTORE ---------------- */
+function BackupRestore() {
+  const [busy, setBusy] = useState(false)
+  const [restoring, setRestoring] = useState(false)
+  const ref = useRef(null)
+
+  const doBackup = async () => {
+    setBusy(true)
+    try {
+      const data = await api('/admin/backup')
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-')
+      a.download = `backup_sim_porseni_${stamp}.json`
+      document.body.appendChild(a); a.click(); a.remove()
+      URL.revokeObjectURL(url)
+      const counts = Object.entries(data.collections || {}).map(([k, v]) => `${k}: ${v.length}`).join(', ')
+      toast.success('Backup berhasil diunduh. ' + counts, { duration: 8000 })
+    } catch (e) { toast.error(e.message) } finally { setBusy(false) }
+  }
+
+  const doRestore = async (e) => {
+    const file = e.target.files?.[0]
+    if (ref.current) ref.current.value = ''
+    if (!file) return
+    if (!confirm('PERINGATAN: Restore akan MENGGANTI seluruh data saat ini dengan isi file backup. Lanjutkan?')) return
+    setRestoring(true)
+    try {
+      const text = await file.text()
+      const parsed = JSON.parse(text)
+      if (!parsed || !parsed.collections) throw new Error('File backup tidak valid (tidak ada "collections").')
+      const res = await api('/admin/restore', { method: 'POST', body: { collections: parsed.collections } })
+      const counts = Object.entries(res.restored || {}).map(([k, v]) => `${k}: ${v}`).join(', ')
+      toast.success('Restore berhasil. ' + counts, { duration: 8000 })
+    } catch (err) { toast.error('Gagal restore: ' + err.message) } finally { setRestoring(false) }
+  }
+
+  return (
+    <div>
+      <PageHeader title="Backup & Restore" desc="Cadangkan & pulihkan seluruh data aplikasi (pengguna, lomba, peserta, hasil, juara, sertifikat, dll)" />
+      <div className="grid lg:grid-cols-2 gap-6">
+        <Card className="p-6">
+          <div className="flex items-center gap-2 mb-2"><Download className="h-5 w-5 text-primary" /><h3 className="font-semibold">Backup Data</h3></div>
+          <p className="text-sm text-muted-foreground mb-4">Unduh salinan seluruh data dalam satu file JSON. Simpan file ini di tempat aman sebelum melakukan pembaruan/penambahan fitur agar data tidak hilang.</p>
+          <Button onClick={doBackup} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}Unduh Backup (JSON)</Button>
+        </Card>
+        <Card className="p-6 border-amber-200 bg-amber-50/40">
+          <div className="flex items-center gap-2 mb-2"><Upload className="h-5 w-5 text-amber-600" /><h3 className="font-semibold">Restore Data</h3></div>
+          <p className="text-sm text-muted-foreground mb-4">Pulihkan data dari file backup JSON. <b className="text-amber-700">Perhatian:</b> proses ini akan menimpa seluruh data yang ada saat ini. Sesi Super Admin Anda tetap aktif.</p>
+          <input ref={ref} type="file" accept="application/json,.json" className="hidden" onChange={doRestore} />
+          <Button variant="outline" onClick={() => ref.current?.click()} disabled={restoring}>{restoring ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Upload className="h-4 w-4 mr-2" />}Pilih File Backup & Restore</Button>
+        </Card>
+      </div>
     </div>
   )
 }

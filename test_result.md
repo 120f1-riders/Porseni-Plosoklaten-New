@@ -289,6 +289,24 @@ backend:
         -agent: "main"
         -comment: "Sheets via service account: peserta auto-append to tab 'Peserta' on POST /peserta & /peserta/team; POST /integrations/sync overwrites full sheet. Drive via OAuth user delegation (service account has no storage quota): POST /upload -> user's Drive folder w/ nested folder path, GET /files/:id streams bytes back. OAuth flow: GET /google/start?token=<super_admin> -> consent; GET /google/callback stores refresh_token in settings collection. GET /integrations/status reports sheets_configured/oauth_configured/drive_connected. Verified end-to-end MANUALLY (real spreadsheet append + real drive_url upload + serve-back). NOT auto-tested to avoid polluting user's real Google Sheet/Drive."
 
+  - task: "NEW: Peserta verify super_admin-only; POST /users bulk create; lomba idcard_image_url; juara gender; backup/restore; 5 required files"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "DELTA to test: (1) PUT /peserta/:id/status now super_admin ONLY (403 for admin_madrasah/panitia, 200 for super_admin). (2) POST /users (super_admin only) creates VERIFIED user, default password '12345678' if none; duplicate -> 400; non-super -> 403; response has password_plain but NO password hash/token/_id. (3) Lomba POST/PUT accepts idcard_image_url; GET returns it. (4) POST /juara keyed by lomba_id+rank+gender: Juara 1 gender L and Juara 1 gender P for same lomba BOTH persist; same rank+gender upserts. GET /juara returns gender. (5) GET /admin/backup (super_admin) returns {collections:{...}}; POST /admin/restore {collections:{...}} wipes+reinserts, keeps super_admin session (can still call /auth/me). (6) computeComplete requires 5 files: akte,surat_ket,pas_photo,nisn_doc,raport -> only-3-files peserta now complete:false. Seed: super@porseni.id/admin123."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 30 TESTS PASSED. (1) POST /users bulk create: auto-verified, default password 12345678, login works, duplicate->400, non-super->403, no hash/token/_id leak. (2) PUT /peserta/:id/status super_admin-only: admin_madrasah->403, super_admin->200. (3) Lomba idcard_image_url persists on POST/PUT and returned by GET. (4) Juara gender: Juara 1 L and Juara 1 P coexist (2 docs); re-POST same rank+gender upserts (replaces only matching gender, other gender untouched). (5) Backup returns all 8 collections; non-super->403; restore round-trips and super_admin session preserved (/auth/me 200 after). (6) computeComplete: 3 files->complete:false, 5 files (akte,surat_ket,pas_photo,nisn_doc,raport)->complete:true."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 6 SCENARIOS PASSED (comprehensive backend testing). (1) POST /users bulk-create (7/7 tests): super_admin creates verified user with default password '12345678', no password hash/token/_id leak in response, login with default password succeeds (proves auto-verified), duplicate email rejected with 400, non-super user POST /users rejected with 403. (2) PUT /peserta/:id/status super_admin-only (4/4 tests): admin_madrasah PUT /peserta/:id/status rejected with 403, super_admin PUT /peserta/:id/status returns 200 with status=verified. (3) Lomba idcard_image_url (4/4 tests): POST /lomba with idcard_image_url persists correctly, PUT /lomba/:id updates idcard_image_url, GET /lomba includes idcard_image_url. (4) Juara gender upsert by lomba_id+rank+gender (9/9 tests): POST /juara with rank='Juara 1' gender='L' creates juara L, POST /juara with rank='Juara 1' gender='P' creates juara P, GET /juara returns 2 docs (both rank='Juara 1', genders L and P coexist), POST /juara again with same rank+gender upserts (replaces L only, P unchanged, still 2 total docs). (5) Backup & Restore (4/4 tests): GET /admin/backup returns collections array with all 8 keys (users, lomba, peserta, hasil, juara, templates, files, settings), non-super GET /admin/backup rejected with 403, POST /admin/restore round-trips successfully, GET /auth/me with SAME super_admin token returns 200 (session preserved, not locked out). (6) computeComplete requires 5 files (2/2 tests): POST /peserta with only 3 files (akte, surat_ket, pas_photo) returns complete=false, PUT /peserta/:id adding nisn_doc and raport (all 5 files) returns complete=true. All backend APIs functioning correctly with proper authentication, authorization, data persistence, and validation. NO SENSITIVE DATA LEAKS DETECTED."
+
 frontend:
   - task: "Gender in registration + Excel template/bulk import + Persyaratan upload + completeness gating (Admin Madrasah)"
     implemented: true
@@ -340,7 +358,8 @@ metadata:
   run_ui: false
 
 test_plan:
-  current_focus: []
+  current_focus:
+    - "NEW: Peserta verify super_admin-only; POST /users bulk create; lomba idcard_image_url; juara gender; backup/restore; 5 required files"
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
@@ -387,3 +406,9 @@ agent_communication:
 
     -agent: "testing"
     -message: "✅ REGRESSION CHECK #3 PASSED - ALL 3 TESTS PASSED. Verified core endpoints after removing output:'standalone' from next.config.js (conflicted with custom server.js, caused /api 404 in production): (1) GET /api/lomba (public, no auth) returns HTTP 200 with JSON array (empty array - expected), (2) POST /api/auth/login with super@porseni.id/admin123 returns HTTP 200 with token and user object (role: super_admin), user object does NOT leak password/password_plain/token/_id fields, (3) GET /api/auth/me with Bearer token returns HTTP 200 with super_admin user (email: super@porseni.id). NO REGRESSION DETECTED. The next.config.js change has no impact on runtime behavior on the dev preview. All /api routes working correctly."
+
+    -agent: "main"
+    -message: "NEW FEATURE DELTA (continuation). .env was missing on start -> restored (MONGO_URL, DB_NAME, NEXT_PUBLIC_BASE_URL, CORS) + re-seeded super_admin (super@porseni.id/admin123). Please test ONLY backend, high_first, the new task 'NEW: Peserta verify super_admin-only; ...'. Focus: (1) PUT /peserta/:id/status is super_admin-only (create an admin_madrasah + peserta, verify 403 when admin_madrasah tries, 200 when super_admin). (2) POST /users super_admin creates verified user w/ default password 12345678 (login works), duplicate->400, non-super->403, no hash/token leak. (3) Lomba idcard_image_url persists (POST/PUT/GET). (4) Juara gender: POST Juara 1 L and Juara 1 P same lomba both persist (GET returns 2 with gender), re-POST same rank+gender upserts to 1. (5) Backup/Restore: GET /admin/backup returns collections; POST /admin/restore round-trips and super_admin token still valid (/auth/me 200 after). (6) computeComplete requires 5 files now (only-3-files peserta -> complete:false). Do NOT test Google integration endpoints."
+
+    -agent: "testing"
+    -message: "✅ NEW FEATURE DELTA BACKEND TESTING COMPLETE - ALL 6 SCENARIOS PASSED (30 total tests). Comprehensive testing of all new backend features: (1) POST /users bulk-create: super_admin-only, auto-verified, default password '12345678', duplicate rejection, non-super 403, no leaks. (2) PUT /peserta/:id/status: super_admin-only (admin_madrasah 403, super_admin 200). (3) Lomba idcard_image_url: POST/PUT/GET all working. (4) Juara gender: upsert by lomba_id+rank+gender (L and P coexist for same rank, same rank+gender upserts correctly). (5) Backup & Restore: GET /admin/backup returns all 8 collections, non-super 403, POST /admin/restore round-trips, session preserved. (6) computeComplete: requires 5 files (akte, surat_ket, pas_photo, nisn_doc, raport) - 3 files = complete:false, 5 files = complete:true. All backend APIs functioning correctly with proper authentication, authorization, data persistence, and validation. NO SENSITIVE DATA LEAKS DETECTED. Ready for main agent to summarize and finish."

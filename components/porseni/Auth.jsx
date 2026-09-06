@@ -28,7 +28,7 @@ export default function Auth({ onAuth }) {
   }, [])
 
   const handleLogin = async () => {
-    if (!email || !password) return toast.error('Email & kata sandi wajib diisi')
+    if (!email || !password) return toast.error('User & kata sandi wajib diisi')
     setLoading(true)
     try {
       const res = await api('/auth/login', { method: 'POST', body: { email, password } })
@@ -68,7 +68,7 @@ export default function Auth({ onAuth }) {
   }
 
   const handleForgot = async () => {
-    if (!email) return toast.error('Masukkan email Anda')
+    if (!email) return toast.error('Masukkan user Anda')
     setLoading(true)
     try {
       const res = await api('/auth/forgot', { method: 'POST', body: { email } })
@@ -85,7 +85,7 @@ export default function Auth({ onAuth }) {
   const descs = {
     login: 'Silakan masuk untuk melanjutkan.',
     register: 'Lengkapi data untuk membuat akun baru.',
-    forgot: 'Masukkan email akun Anda. Permintaan reset akan dikirim ke Super Admin untuk ditetapkan sandi baru.',
+    forgot: 'Masukkan user akun Anda. Permintaan reset akan dikirim ke Super Admin untuk ditetapkan sandi baru.',
   }
   const submitFn = mode === 'login' ? handleLogin : mode === 'register' ? handleRegister : handleForgot
   const submitLabel = mode === 'login' ? 'Masuk' : mode === 'register' ? 'Daftar' : 'Kirim Permintaan Reset'
@@ -128,8 +128,8 @@ export default function Auth({ onAuth }) {
               </div>
             )}
             <div className="space-y-1.5">
-              <Label>Email</Label>
-              <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email@contoh.id" />
+              <Label>User</Label>
+              <Input type="text" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="email atau kode akun" />
             </div>
             {mode !== 'forgot' && (
               <div className="space-y-1.5">
