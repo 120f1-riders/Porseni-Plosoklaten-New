@@ -368,6 +368,12 @@ agent_communication:
     -message: "✅ REGRESSION CHECK PASSED. next.config.js change (experimental.cpus=1, workerThreads=false) caused NO regressions. GET /api/lomba 200 (array), super_admin login 200 (no password/token leak), /auth/me 200. Core endpoints healthy."
 
     -agent: "main"
+    -message: "REGRESSION CHECK #2. Moved autoprefixer/postcss/tailwindcss from devDependencies to dependencies in package.json (cPanel prod mode skips devDeps -> 'Cannot find module autoprefixer' during build). Also added eslint.ignoreDuringBuilds=true in next.config.js. These are build/packaging changes; runtime unaffected. Please re-run the SAME quick backend regression sanity check: (1) GET /api/lomba 200 array; (2) super_admin login super@porseni.id/admin123 200 with token and NO password/token leak; (3) /auth/me 200. Do NOT test Google integration endpoints."
+
+    -agent: "testing"
+    -message: "✅ REGRESSION CHECK #2 PASSED - ALL 3 TESTS PASSED. Verified core endpoints after package.json (moved autoprefixer/postcss/tailwindcss to dependencies) + next.config.js (eslint.ignoreDuringBuilds=true) changes: (1) GET /api/lomba (public, no auth) returns HTTP 200 with JSON array (empty array - expected), (2) POST /api/auth/login with super@porseni.id/admin123 returns HTTP 200 with token and user object (role: super_admin), user object does NOT leak password/password_plain/token/_id fields, (3) GET /api/auth/me with Bearer token returns HTTP 200 with super_admin user (email: super@porseni.id). NO REGRESSION DETECTED. The build/packaging changes have no impact on runtime behavior. All core backend APIs functioning correctly."
+
+    -agent: "main"
     -message: "GOOGLE INTEGRATION ADDED (Drive OAuth + Sheets service account). Env restored (.env was missing) + super_admin re-seeded (super@porseni.id/admin123). Sheets: service account writes to spreadsheet tab 'Peserta'; peserta auto-append on create; POST /integrations/sync full re-sync. Drive: OAuth user delegation because service accounts have no storage quota; /google/start + /google/callback store refresh_token in settings collection; /upload -> Drive (fallback disk if not connected); /files/:id streams from Drive. New SuperAdmin 'Integrasi Google' page. Verified end-to-end MANUALLY (real Google APIs) - both working. Did NOT run automated backend testing agent to avoid writing junk into the user's real Google Sheet/Drive. If automated testing is desired later, point it at a throwaway spreadsheet/folder."
 
     -agent: "main"

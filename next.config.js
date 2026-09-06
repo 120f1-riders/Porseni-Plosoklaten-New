@@ -1,5 +1,9 @@
 const nextConfig = {
   output: 'standalone',
+  eslint: {
+    // Skip ESLint during production build (cPanel prod install has no dev deps)
+    ignoreDuringBuilds: true,
+  },
   images: {
     unoptimized: true,
     remotePatterns: [
