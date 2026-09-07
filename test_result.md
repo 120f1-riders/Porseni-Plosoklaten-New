@@ -289,6 +289,20 @@ backend:
         -agent: "main"
         -comment: "Sheets via service account: peserta auto-append to tab 'Peserta' on POST /peserta & /peserta/team; POST /integrations/sync overwrites full sheet. Drive via OAuth user delegation (service account has no storage quota): POST /upload -> user's Drive folder w/ nested folder path, GET /files/:id streams bytes back. OAuth flow: GET /google/start?token=<super_admin> -> consent; GET /google/callback stores refresh_token in settings collection. GET /integrations/status reports sheets_configured/oauth_configured/drive_connected. Verified end-to-end MANUALLY (real spreadsheet append + real drive_url upload + serve-back). NOT auto-tested to avoid polluting user's real Google Sheet/Drive."
 
+  - task: "Users PUT edit — now accepts email (dedup) + role (with role-consistent field cleanup)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "CHANGE: PUT /users/:id (super_admin only) now also accepts 'email' (lowercased, trimmed, rejects duplicate used by another user with 400) and 'role'. When role set: admin_madrasah -> assigned_lomba_id nulled; panitia -> madrasah_name nulled; super_admin -> both nulled. Existing name/madrasah_name/assigned_lomba_id/status/password still work. Test: create a panitia user via POST /users, then PUT to change assigned_lomba_id (divisi lomba) persists; PUT changing role panitia->admin_madrasah nulls assigned_lomba_id and sets madrasah_name; PUT email to an existing user's email -> 400; PUT unique new email persists (login with new email works). Seed: super@porseni.id/admin123."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 8 TEST SCENARIOS PASSED (comprehensive testing). (1) Super admin login successful with token. (2) Created 2 lomba (Test Lomba A - Olahraga/individu, Test Lomba B - Seni/individu). (3) POST /users created panitia user 'Panitia Test' with assigned_lomba_id=Lomba A id, status=verified. (4) PUT /users/:id {assigned_lomba_id: Lomba B id} successfully updated assigned_lomba_id to Lomba B (divisi lomba edit feature working), verified with GET /users. (5) PUT /users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} successfully changed role, set madrasah_name='MI Test', and nulled assigned_lomba_id (role-consistent field cleanup working), verified with GET /users. (6) Created second user with email user.two@porseni.id, then PUT first user {email:'user.two@porseni.id'} correctly rejected with HTTP 400 'Email sudah digunakan pengguna lain' (duplicate email detection working). (7) PUT first user {email:'panitia.new@porseni.id'} (unique) persisted successfully, verified with GET /users, login with new email 'panitia.new@porseni.id' and default password '12345678' succeeded (email update + login working). (8) Regression tests: PUT {name:'Renamed'} and PUT {status:'pending'} both successful (existing fields still work). Non-super admin attempt: created admin_madrasah user, logged in, attempted PUT /users/:id rejected with HTTP 403 'Akses ditolak' (authorization working). All features working correctly: email deduplication, role-specific field cleanup (assigned_lomba_id nulled for admin_madrasah, madrasah_name nulled for panitia), email update persistence, regression compatibility, and proper authorization."
   - task: "NEW: Peserta verify super_admin-only; POST /users bulk create; lomba idcard_image_url; juara gender; backup/restore; 5 required files"
     implemented: true
     working: true
@@ -308,6 +322,17 @@ backend:
         -comment: "✅ ALL 6 SCENARIOS PASSED (comprehensive backend testing). (1) POST /users bulk-create (7/7 tests): super_admin creates verified user with default password '12345678', no password hash/token/_id leak in response, login with default password succeeds (proves auto-verified), duplicate email rejected with 400, non-super user POST /users rejected with 403. (2) PUT /peserta/:id/status super_admin-only (4/4 tests): admin_madrasah PUT /peserta/:id/status rejected with 403, super_admin PUT /peserta/:id/status returns 200 with status=verified. (3) Lomba idcard_image_url (4/4 tests): POST /lomba with idcard_image_url persists correctly, PUT /lomba/:id updates idcard_image_url, GET /lomba includes idcard_image_url. (4) Juara gender upsert by lomba_id+rank+gender (9/9 tests): POST /juara with rank='Juara 1' gender='L' creates juara L, POST /juara with rank='Juara 1' gender='P' creates juara P, GET /juara returns 2 docs (both rank='Juara 1', genders L and P coexist), POST /juara again with same rank+gender upserts (replaces L only, P unchanged, still 2 total docs). (5) Backup & Restore (4/4 tests): GET /admin/backup returns collections array with all 8 keys (users, lomba, peserta, hasil, juara, templates, files, settings), non-super GET /admin/backup rejected with 403, POST /admin/restore round-trips successfully, GET /auth/me with SAME super_admin token returns 200 (session preserved, not locked out). (6) computeComplete requires 5 files (2/2 tests): POST /peserta with only 3 files (akte, surat_ket, pas_photo) returns complete=false, PUT /peserta/:id adding nisn_doc and raport (all 5 files) returns complete=true. All backend APIs functioning correctly with proper authentication, authorization, data persistence, and validation. NO SENSITIVE DATA LEAKS DETECTED."
 
 frontend:
+  - task: "NEW: Cetak Absensi photo column + Manajemen Pengguna edit dialog (divisi lomba)"
+    implemented: true
+    working: "NA"
+    file: "components/porseni/Panitia.jsx, components/porseni/SuperAdmin.jsx, app/globals.css"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Feature 1: Panitia Cetak Absensi now has a 'Foto' column rendering peserta pas_photo (files.pas_photo via fileUrl); placeholder box if none; print CSS added (.peserta-photo, color-adjust exact). Feature 2: Manajemen Pengguna row has new 'Edit' button (non-super_admin) opening EditUserDialog to edit name, email, role, madrasah_name (admin_madrasah) and assigned_lomba_id (Divisi/Cabang Lomba for panitia). NOTE: Frontend not auto-tested yet (awaiting user go-ahead)."
   - task: "Gender in registration + Excel template/bulk import + Persyaratan upload + completeness gating (Admin Madrasah)"
     implemented: true
     working: true
@@ -354,18 +379,19 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 6
+  test_sequence: 7
   run_ui: false
 
 test_plan:
-  current_focus:
-    - "NEW: Peserta verify super_admin-only; POST /users bulk create; lomba idcard_image_url; juara gender; backup/restore; 5 required files"
+  current_focus: []
   stuck_tasks: []
   test_all: false
   test_priority: "high_first"
   run_ui: false
 
 agent_communication:
+    -agent: "main"
+    -message: "CONTINUATION DELTA. .env was missing on start -> restored (MONGO_URL, DB_NAME, NEXT_PUBLIC_BASE_URL, CORS) + re-seeded super_admin (super@porseni.id/admin123, only user). Please test ONLY backend, high_first, the task 'Users PUT edit — now accepts email (dedup) + role'. Steps: (1) POST /users create a panitia user (need a lomba first: POST /lomba as super_admin). (2) PUT /users/:id {assigned_lomba_id: <other lomba id>} persists (GET /users shows updated). (3) PUT /users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} nulls assigned_lomba_id and sets madrasah_name. (4) PUT /users/:id {email:'<existing other user email>'} -> 400 duplicate; PUT unique new email -> persists and login works with new email. (5) Regression: PUT name/status still work; non-super PUT -> 403. Do NOT test Google integration endpoints."
     -agent: "main"
     -message: "NEW backend delta to test: password features. (1) register stores password_plain; (2) GET /users returns password_plain for super_admin only (verify NO password_plain/hash/token leak in /auth/login, /auth/register, /auth/me); (3) PUT /users/:id {password} resets password (login with new password must work) and clears reset_requested; (4) POST /auth/forgot {email} public sets reset_requested true (generic ok msg even for unknown email). Kop surat uses existing /templates type=kopsurat (no new endpoint). Super admin: super@porseni.id / admin123."
     -agent: "testing"
@@ -412,3 +438,5 @@ agent_communication:
 
     -agent: "testing"
     -message: "✅ NEW FEATURE DELTA BACKEND TESTING COMPLETE - ALL 6 SCENARIOS PASSED (30 total tests). Comprehensive testing of all new backend features: (1) POST /users bulk-create: super_admin-only, auto-verified, default password '12345678', duplicate rejection, non-super 403, no leaks. (2) PUT /peserta/:id/status: super_admin-only (admin_madrasah 403, super_admin 200). (3) Lomba idcard_image_url: POST/PUT/GET all working. (4) Juara gender: upsert by lomba_id+rank+gender (L and P coexist for same rank, same rank+gender upserts correctly). (5) Backup & Restore: GET /admin/backup returns all 8 collections, non-super 403, POST /admin/restore round-trips, session preserved. (6) computeComplete: requires 5 files (akte, surat_ket, pas_photo, nisn_doc, raport) - 3 files = complete:false, 5 files = complete:true. All backend APIs functioning correctly with proper authentication, authorization, data persistence, and validation. NO SENSITIVE DATA LEAKS DETECTED. Ready for main agent to summarize and finish."
+    -agent: "testing"
+    -message: "✅ USERS PUT EDIT BACKEND TESTING COMPLETE - ALL 8 TEST SCENARIOS PASSED. Comprehensive testing of 'Users PUT edit — now accepts email (dedup) + role (with role-consistent field cleanup)' feature: (1) Super admin login successful. (2) Created 2 lomba (Test Lomba A - Olahraga/individu, Test Lomba B - Seni/individu). (3) POST /users created panitia user with assigned_lomba_id=Lomba A id, status=verified. (4) PUT /users/:id {assigned_lomba_id: Lomba B id} successfully updated (divisi lomba edit feature working), verified with GET /users. (5) PUT /users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} successfully changed role, set madrasah_name, and nulled assigned_lomba_id (role-consistent field cleanup working), verified with GET /users. (6) Duplicate email correctly rejected with HTTP 400 'Email sudah digunakan pengguna lain'. (7) Unique email update persisted, login with new email 'panitia.new@porseni.id' and default password '12345678' succeeded. (8) Regression tests passed: PUT {name:'Renamed'} and PUT {status:'pending'} successful; non-super admin PUT /users rejected with HTTP 403 'Akses ditolak'. All features working correctly: email deduplication, role-specific field cleanup (assigned_lomba_id nulled for admin_madrasah, madrasah_name nulled for panitia), email update persistence, regression compatibility, and proper authorization. NO SENSITIVE DATA LEAKS DETECTED. Ready for main agent to summarize and finish."

@@ -18,7 +18,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/shared'
 import TemplateStudio from '@/components/porseni/TemplateStudio'
-import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, GENDERS, ROLE_LABEL, CERT_DEFAULT_FIELDS, CERT_PANITIA_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
+import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, GENDERS, ROLES, ROLE_LABEL, CERT_DEFAULT_FIELDS, CERT_PANITIA_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl, getToken } from '@/lib/porseni/api'
 import { downloadLombaTemplate, parseLombaWorkbook, downloadUserTemplate, parseUserWorkbook } from '@/lib/porseni/excel'
 
@@ -447,6 +447,7 @@ function ManajemenPengguna() {
   const [loading, setLoading] = useState(true)
   const [show, setShow] = useState({})
   const [resetDlg, setResetDlg] = useState({ open: false, user: null })
+  const [editDlg, setEditDlg] = useState({ open: false, user: null })
   const load = async () => { setLoading(true); try { const [u, l] = await Promise.all([api('/users'), api('/lomba')]); setUsers(u); setLomba(l) } catch (e) { toast.error(e.message) } finally { setLoading(false) } }
   useEffect(() => { load() }, [])
   const lombaName = (id) => lomba.find((l) => l.id === id)?.name || '-'
@@ -497,6 +498,7 @@ function ManajemenPengguna() {
                   </TableCell>
                   <TableCell><StatusBadge status={u.status} /></TableCell>
                   <TableCell className="text-right whitespace-nowrap">
+                    {u.role !== 'super_admin' && <Button size="sm" variant="outline" className="mr-1" onClick={() => setEditDlg({ open: true, user: u })}><Pencil className="h-4 w-4 mr-1" />Edit</Button>}
                     <Button size="sm" variant={u.reset_requested ? 'default' : 'outline'} className="mr-1" onClick={() => setResetDlg({ open: true, user: u })}><KeyRound className="h-4 w-4 mr-1" />Reset Sandi</Button>
                     {u.status !== 'verified'
                       ? <Button size="sm" onClick={() => verify(u.id, 'verified')}><CheckCircle className="h-4 w-4 mr-1" />Verifikasi</Button>
@@ -511,7 +513,95 @@ function ManajemenPengguna() {
       </Card>
 
       <ResetPasswordDialog state={resetDlg} onClose={() => setResetDlg({ open: false, user: null })} onSaved={load} />
+      <EditUserDialog state={editDlg} lomba={lomba} onClose={() => setEditDlg({ open: false, user: null })} onSaved={load} />
     </div>
+  )
+}
+
+function EditUserDialog({ state, lomba, onClose, onSaved }) {
+  const [form, setForm] = useState({ name: '', email: '', role: 'panitia', madrasah_name: '', assigned_lomba_id: '' })
+  const [saving, setSaving] = useState(false)
+  useEffect(() => {
+    if (state.open && state.user) {
+      const u = state.user
+      setForm({
+        name: u.name || '',
+        email: u.email || '',
+        role: u.role || 'panitia',
+        madrasah_name: u.madrasah_name || '',
+        assigned_lomba_id: u.assigned_lomba_id || '',
+      })
+    }
+  }, [state.open, state.user])
+
+  const save = async () => {
+    if (!form.name.trim()) return toast.error('Nama wajib diisi')
+    if (!form.email.trim()) return toast.error('User/email wajib diisi')
+    if (form.role === 'panitia' && !form.assigned_lomba_id) return toast.error('Pilih divisi/cabang lomba untuk Panitia')
+    if (form.role === 'admin_madrasah' && !form.madrasah_name.trim()) return toast.error('Nama madrasah wajib diisi')
+    setSaving(true)
+    try {
+      const body = {
+        name: form.name.trim(),
+        email: form.email.trim(),
+        role: form.role,
+        madrasah_name: form.role === 'admin_madrasah' ? form.madrasah_name.trim() : null,
+        assigned_lomba_id: form.role === 'panitia' ? form.assigned_lomba_id : null,
+      }
+      await api(`/users/${state.user.id}`, { method: 'PUT', body })
+      toast.success('Data pengguna diperbarui')
+      onClose(); onSaved()
+    } catch (e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
+  if (!state.user) return null
+  return (
+    <Dialog open={state.open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit Pengguna — {state.user.name}</DialogTitle></DialogHeader>
+        <div className="space-y-3 mt-1">
+          <div className="space-y-1.5">
+            <Label>Nama</Label>
+            <Input value={form.name} onChange={(e) => setForm((f) => ({ ...f, name: e.target.value }))} placeholder="Nama lengkap" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>User (Email)</Label>
+            <Input value={form.email} onChange={(e) => setForm((f) => ({ ...f, email: e.target.value }))} placeholder="email / username" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Peran</Label>
+            <Select value={form.role} onValueChange={(v) => setForm((f) => ({ ...f, role: v }))}>
+              <SelectTrigger><SelectValue /></SelectTrigger>
+              <SelectContent>
+                {ROLES.filter((r) => r.value !== 'super_admin').map((r) => <SelectItem key={r.value} value={r.value}>{r.label}</SelectItem>)}
+              </SelectContent>
+            </Select>
+          </div>
+          {form.role === 'admin_madrasah' && (
+            <div className="space-y-1.5">
+              <Label>Nama Madrasah</Label>
+              <Input value={form.madrasah_name} onChange={(e) => setForm((f) => ({ ...f, madrasah_name: e.target.value }))} placeholder="cth: MI Al-Hidayah" />
+            </div>
+          )}
+          {form.role === 'panitia' && (
+            <div className="space-y-1.5">
+              <Label>Divisi / Cabang Lomba</Label>
+              <Select value={form.assigned_lomba_id} onValueChange={(v) => setForm((f) => ({ ...f, assigned_lomba_id: v }))}>
+                <SelectTrigger><SelectValue placeholder="Pilih cabang lomba" /></SelectTrigger>
+                <SelectContent>
+                  {(lomba || []).map((l) => <SelectItem key={l.id} value={l.id}>{l.name} ({l.category})</SelectItem>)}
+                  {(lomba || []).length === 0 && <div className="px-3 py-2 text-sm text-muted-foreground">Belum ada cabang lomba</div>}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose}>Batal</Button>
+          <Button onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Simpan Perubahan</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 

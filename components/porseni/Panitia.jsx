@@ -147,6 +147,13 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
   const doPrint = (m) => { setMode(m); setTimeout(() => window.print(), 150) }
   const crit = criteria.length ? criteria : ['Kriteria 1', 'Kriteria 2']
 
+  const photoCell = (p) => {
+    const src = p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null
+    return src
+      ? <img src={src} alt={p.participant_name} className="peserta-photo" crossOrigin="anonymous" />
+      : <span className="peserta-photo-empty">Foto</span>
+  }
+
   const rows = peserta
     .filter((p) => gender === 'all' ? true : p.gender === gender)
     .sort((a, b) => (Number(a.nomor_peserta) || 0) - (Number(b.nomor_peserta) || 0) || String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
@@ -180,12 +187,12 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
       {Header}
       {mode === 'absensi' ? (
         <table className="print-table">
-          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>L/P</th><th>Madrasah</th><th style={{ width: '25%' }}>Tanda Tangan</th></tr></thead>
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th style={{ width: 60 }}>Foto</th><th>Nama</th><th>L/P</th><th>Madrasah</th><th style={{ width: '22%' }}>Tanda Tangan</th></tr></thead>
           <tbody>
             {rows.map((p, i) => (
-              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td><td style={{ height: 34 }}></td></tr>
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td style={{ textAlign: 'center' }}>{photoCell(p)}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td><td style={{ height: 34 }}></td></tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={6} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
           </tbody>
         </table>
       ) : (

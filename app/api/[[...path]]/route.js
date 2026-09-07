@@ -445,7 +445,18 @@ async function handleRoute(request, { params }) {
       if (!u || u.role !== 'super_admin') return json({ error: 'Akses ditolak' }, 403)
       const b = await request.json()
       const set = {}
-      ;['status', 'name', 'madrasah_name', 'assigned_lomba_id'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      ;['status', 'name', 'madrasah_name', 'assigned_lomba_id', 'role'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
+      if (b.email !== undefined) {
+        const email = String(b.email).toLowerCase().trim()
+        if (!email) return json({ error: 'Email tidak boleh kosong' }, 400)
+        const dup = await db.collection('users').findOne({ email, id: { $ne: p[1] } })
+        if (dup) return json({ error: 'Email sudah digunakan pengguna lain' }, 400)
+        set.email = email
+      }
+      // keep role-specific fields consistent
+      if (set.role === 'admin_madrasah') set.assigned_lomba_id = null
+      if (set.role === 'panitia') set.madrasah_name = null
+      if (set.role === 'super_admin') { set.assigned_lomba_id = null; set.madrasah_name = null }
       if (b.password) {
         set.password = hashPw(String(b.password))
         set.password_plain = String(b.password)
