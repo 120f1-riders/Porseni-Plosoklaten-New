@@ -89,6 +89,7 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
                 <TableHead>No. Urut Tampil</TableHead>
                 <TableHead>Nama</TableHead>
                 <TableHead>L/P</TableHead>
+                <TableHead>Tempat, Tgl Lahir</TableHead>
                 <TableHead>Madrasah</TableHead>
                 <TableHead>Berkas</TableHead>
                 <TableHead>Status</TableHead>
@@ -100,6 +101,7 @@ function DaftarPeserta({ lomba, peserta, loading, onChange }) {
                   <TableCell><NomorCell p={p} onSave={setNomor} /></TableCell>
                   <TableCell className="font-medium">{p.participant_name}</TableCell>
                   <TableCell>{p.gender || '-'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{p.ttl || '-'}</TableCell>
                   <TableCell>{p.madrasah_name}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 flex-wrap">
@@ -187,12 +189,12 @@ function Cetak({ lomba, peserta, criteria, kopSurat }) {
       {Header}
       {mode === 'absensi' ? (
         <table className="print-table">
-          <thead><tr><th>No</th><th>Nomor Peserta</th><th style={{ width: 60 }}>Foto</th><th>Nama</th><th>L/P</th><th>Madrasah</th><th style={{ width: '22%' }}>Tanda Tangan</th></tr></thead>
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th style={{ width: 60 }}>Foto</th><th>Nama</th><th>L/P</th><th>Tempat, Tgl Lahir</th><th>Madrasah</th><th style={{ width: '18%' }}>Tanda Tangan</th></tr></thead>
           <tbody>
             {rows.map((p, i) => (
-              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td style={{ textAlign: 'center' }}>{photoCell(p)}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td><td style={{ height: 34 }}></td></tr>
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td style={{ textAlign: 'center' }}>{photoCell(p)}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.ttl || '-'}</td><td>{p.madrasah_name}</td><td style={{ height: 34 }}></td></tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
           </tbody>
         </table>
       ) : (

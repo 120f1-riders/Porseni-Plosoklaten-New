@@ -493,6 +493,7 @@ function DaftarPeserta({ peserta, lomba, loading, onChange }) {
                 <TableHead>No. Peserta</TableHead>
                 <TableHead>Nama</TableHead>
                 <TableHead>L/P</TableHead>
+                <TableHead>Tempat, Tgl Lahir</TableHead>
                 <TableHead>Cabang Lomba</TableHead>
                 <TableHead>Berkas</TableHead>
                 <TableHead>Kelengkapan</TableHead>
@@ -506,6 +507,7 @@ function DaftarPeserta({ peserta, lomba, loading, onChange }) {
                   <TableCell className="font-mono">{p.nomor_peserta}</TableCell>
                   <TableCell className="font-medium">{p.participant_name}</TableCell>
                   <TableCell>{GENDER_LABEL[p.gender] ? (p.gender === 'L' ? 'L' : 'P') : '-'}</TableCell>
+                  <TableCell className="text-sm text-muted-foreground">{p.ttl || '-'}</TableCell>
                   <TableCell>{p.lomba_name}</TableCell>
                   <TableCell>
                     <div className="flex gap-1 flex-wrap">
