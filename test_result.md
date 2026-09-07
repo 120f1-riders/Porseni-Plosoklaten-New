@@ -332,7 +332,7 @@ frontend:
     status_history:
         -working: "NA"
         -agent: "main"
-        -comment: "Feature 1: Panitia Cetak Absensi now has a 'Foto' column rendering peserta pas_photo (files.pas_photo via fileUrl); placeholder box if none; print CSS added (.peserta-photo, color-adjust exact). Feature 2: Manajemen Pengguna row has new 'Edit' button (non-super_admin) opening EditUserDialog to edit name, email, role, madrasah_name (admin_madrasah) and assigned_lomba_id (Divisi/Cabang Lomba for panitia). NOTE: Frontend not auto-tested yet (awaiting user go-ahead)."
+        -comment: "Feature 1: Panitia Cetak Absensi now has a 'Foto' column rendering peserta pas_photo (files.pas_photo via fileUrl); placeholder box if none; print CSS added (.peserta-photo, color-adjust exact). ADDED per user feedback: Foto column also on SuperAdmin CetakAdmin (Cetak Administrasi) absensi print, and on SuperAdmin DataPendaftar (Data Pendaftar) both the on-screen verification table and the 'Cetak Semua' print sheet. Feature 2: Manajemen Pengguna row has new 'Edit' button (non-super_admin) opening EditUserDialog to edit name, email, role, madrasah_name (admin_madrasah) and assigned_lomba_id (Divisi/Cabang Lomba for panitia). Verified: CetakAdmin page renders without JS error, uploaded pas_photo served as image/png (200). NOTE: Frontend not auto-tested via testing agent yet (user testing themselves)."
   - task: "Gender in registration + Excel template/bulk import + Persyaratan upload + completeness gating (Admin Madrasah)"
     implemented: true
     working: true

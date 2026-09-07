@@ -714,6 +714,12 @@ function DataPendaftar() {
     .filter((p) => genderFilter === 'all' ? true : p.gender === genderFilter)
 
   const doPrint = () => setTimeout(() => window.print(), 150)
+  const photoCell = (p) => {
+    const src = p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null
+    return src
+      ? <img src={src} alt={p.participant_name} className="peserta-photo" crossOrigin="anonymous" />
+      : <span className="peserta-photo-empty">Foto</span>
+  }
 
   const Sheet = (
     <div className="sheet">
@@ -729,12 +735,13 @@ function DataPendaftar() {
         <div style={{ textAlign: 'center', fontSize: 14, marginTop: 4, fontWeight: 600 }}>DAFTAR SELURUH PESERTA{lombaFilter !== 'all' ? ' — ' + (lomba.find((l) => l.id === lombaFilter)?.name || '') : ''}</div>
       </div>
       <table className="print-table">
-        <thead><tr><th>No</th><th>No. Peserta</th><th>Nama</th><th>L/P</th><th>Asal Madrasah</th><th>Cabang Lomba</th><th>Status</th></tr></thead>
+        <thead><tr><th>No</th><th>No. Peserta</th><th style={{ width: 60 }}>Foto</th><th>Nama</th><th>L/P</th><th>Asal Madrasah</th><th>Cabang Lomba</th><th>Status</th></tr></thead>
         <tbody>
           {rows.map((p, i) => (
             <tr key={p.id}>
               <td style={{ textAlign: 'center' }}>{i + 1}</td>
               <td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td>
+              <td style={{ textAlign: 'center' }}>{photoCell(p)}</td>
               <td>{p.participant_name}</td>
               <td style={{ textAlign: 'center' }}>{p.gender || '-'}</td>
               <td>{p.madrasah_name}</td>
@@ -742,7 +749,7 @@ function DataPendaftar() {
               <td style={{ textAlign: 'center' }}>{p.status === 'verified' ? 'Terverifikasi' : 'Menunggu'}</td>
             </tr>
           ))}
-          {rows.length === 0 && <tr><td colSpan={7} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+          {rows.length === 0 && <tr><td colSpan={8} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
         </tbody>
       </table>
       <div style={{ marginTop: 16, fontSize: 13 }}>Total: {rows.length} peserta</div>
@@ -785,6 +792,7 @@ function DataPendaftar() {
               <TableHeader>
                 <TableRow>
                   <TableHead>No. Peserta</TableHead>
+                  <TableHead>Foto</TableHead>
                   <TableHead>Nama</TableHead>
                   <TableHead>L/P</TableHead>
                   <TableHead>Asal Madrasah</TableHead>
@@ -798,6 +806,7 @@ function DataPendaftar() {
                 {rows.map((p) => (
                   <TableRow key={p.id}>
                     <TableCell className="font-mono">{p.nomor_peserta}</TableCell>
+                    <TableCell>{photoCell(p)}</TableCell>
                     <TableCell className="font-medium">{p.participant_name}</TableCell>
                     <TableCell>{GENDER_LABEL[p.gender] ? p.gender : '-'}</TableCell>
                     <TableCell>{p.madrasah_name}</TableCell>
@@ -853,6 +862,12 @@ function CetakAdmin() {
 
   const doPrint = (m) => { setMode(m); setTimeout(() => window.print(), 150) }
   const genderLabel = gender === 'L' ? ' (Putra)' : gender === 'P' ? ' (Putri)' : ''
+  const photoCell = (p) => {
+    const src = p.files?.pas_photo ? fileUrl(p.files.pas_photo.id) : null
+    return src
+      ? <img src={src} alt={p.participant_name} className="peserta-photo" crossOrigin="anonymous" />
+      : <span className="peserta-photo-empty">Foto</span>
+  }
 
   const Header = (
     <div style={{ borderBottom: '3px double #000', paddingBottom: 12, marginBottom: 20 }}>
@@ -882,12 +897,12 @@ function CetakAdmin() {
       {Header}
       {mode === 'absensi' ? (
         <table className="print-table">
-          <thead><tr><th>No</th><th>Nomor Peserta</th><th>Nama</th><th>L/P</th><th>Madrasah</th>{!lombaFilter && <th>Cabang Lomba</th>}<th style={{ width: '22%' }}>Tanda Tangan</th></tr></thead>
+          <thead><tr><th>No</th><th>Nomor Peserta</th><th style={{ width: 60 }}>Foto</th><th>Nama</th><th>L/P</th><th>Madrasah</th>{!lombaFilter && <th>Cabang Lomba</th>}<th style={{ width: '22%' }}>Tanda Tangan</th></tr></thead>
           <tbody>
             {rows.map((p, i) => (
-              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td>{!lombaFilter && <td>{p.lomba_name}</td>}<td style={{ height: 34 }}></td></tr>
+              <tr key={p.id}><td style={{ textAlign: 'center' }}>{i + 1}</td><td style={{ textAlign: 'center' }}>{p.nomor_peserta}</td><td style={{ textAlign: 'center' }}>{photoCell(p)}</td><td>{p.participant_name}</td><td style={{ textAlign: 'center' }}>{p.gender || '-'}</td><td>{p.madrasah_name}</td>{!lombaFilter && <td>{p.lomba_name}</td>}<td style={{ height: 34 }}></td></tr>
             ))}
-            {rows.length === 0 && <tr><td colSpan={lombaFilter ? 6 : 7} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
+            {rows.length === 0 && <tr><td colSpan={lombaFilter ? 7 : 8} style={{ textAlign: 'center' }}>Belum ada peserta</td></tr>}
           </tbody>
         </table>
       ) : (
