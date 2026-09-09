@@ -20,7 +20,7 @@ import { StatCard, StatusBadge, PageHeader, Empty } from '@/components/porseni/s
 import TemplateStudio from '@/components/porseni/TemplateStudio'
 import { CATEGORIES, LOMBA_TYPES, GENDER_LABEL, GENDERS, ROLES, ROLE_LABEL, CERT_DEFAULT_FIELDS, CERT_PANITIA_FIELDS, IDCARD_PESERTA_FIELDS, IDCARD_PANITIA_FIELDS } from '@/lib/porseni/constants'
 import { api, uploadFile, fileUrl, getToken } from '@/lib/porseni/api'
-import { downloadLombaTemplate, parseLombaWorkbook, downloadUserTemplate, parseUserWorkbook } from '@/lib/porseni/excel'
+import { downloadLombaTemplate, parseLombaWorkbook, downloadUserTemplate, parseUserWorkbook, exportUsersToExcel } from '@/lib/porseni/excel'
 
 export default function SuperAdmin({ view }) {
   if (view === 'lomba') return <ManajemenLomba />
@@ -454,11 +454,18 @@ function ManajemenPengguna() {
   const verify = async (id, status) => { try { await api(`/users/${id}`, { method: 'PUT', body: { status } }); toast.success('Status diperbarui'); load() } catch (e) { toast.error(e.message) } }
   const del = async (id) => { if (!confirm('Hapus pengguna?')) return; try { await api(`/users/${id}`, { method: 'DELETE' }); toast.success('Dihapus'); load() } catch (e) { toast.error(e.message) } }
   const copy = (txt) => { navigator.clipboard?.writeText(txt); toast.success('Sandi disalin') }
+  const exportExcel = () => {
+    if (!users.length) { toast.error('Belum ada pengguna untuk diexport.'); return }
+    exportUsersToExcel(users, lomba)
+    toast.success('File Excel daftar pengguna diunduh.')
+  }
   const resetCount = users.filter((u) => u.reset_requested).length
 
   return (
     <div>
-      <PageHeader title="Manajemen Pengguna" desc="Verifikasi akun, lihat & atur ulang kata sandi" />
+      <PageHeader title="Manajemen Pengguna" desc="Verifikasi akun, lihat & atur ulang kata sandi">
+        <Button variant="outline" onClick={exportExcel}><FileSpreadsheet className="h-4 w-4 mr-2" />Cetak Excel</Button>
+      </PageHeader>
 
       <KopSuratCard />
 

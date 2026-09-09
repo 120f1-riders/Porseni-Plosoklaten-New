@@ -337,6 +337,17 @@ backend:
         -comment: "✅ ALL 14 TESTS PASSED (12 authorization tests + 2 regression tests). Comprehensive testing of DELETE /peserta/:id authorization scoping: (1) super_admin login successful. (2) Created lomba 'Test Delete Auth' (Olahraga/individu). (3) Created admin_madrasah user 'MI A', login successful. (4) Created admin_madrasah user 'MI B', login successful. (5) MI A created peserta1 (Peserta A, gender L). (6) MI B created peserta2 (Peserta B, gender P). (7) MI A DELETE peserta2 (not own) -> 403 as expected (admin_madrasah can only delete own peserta). (8) MI A DELETE peserta1 (own) -> 200 successful. (9) Verified peserta1 no longer in MI A's GET /peserta list. (10) Created panitia user assigned to lomba, login successful. (11) Panitia DELETE peserta2 -> 403 as expected (panitia cannot delete any peserta). (12) super_admin DELETE peserta2 -> 200 successful (super_admin can delete any peserta). (13) super_admin DELETE nonexistent-id-123 -> 404 as expected. (14) DELETE without Authorization header -> 401 as expected. Regression tests: GET /lomba (public) returns 200 with array, super_admin login returns 200 with no password/password_plain/token/_id leaks. All authorization rules working correctly: super_admin can delete ANY peserta, admin_madrasah can delete ONLY own peserta (created_by check), panitia always forbidden, proper 404 for nonexistent id, proper 401 for missing token."
 
 frontend:
+  - task: "Manajemen Pengguna: Cetak/Export Excel (nama, user/email, password_plain, peran, keterangan, status)"
+    implemented: true
+    working: "NA"
+    file: "components/porseni/SuperAdmin.jsx, lib/porseni/excel.js"
+    stuck_count: 0
+    priority: "medium"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "Added exportUsersToExcel(users, lomba) in excel.js (columns: No, Nama, User email/kode, Kata Sandi=password_plain, Peran, Keterangan=madrasah/lomba, Status) and a 'Cetak Excel' button in ManajemenPengguna PageHeader. Uses existing GET /users (super_admin returns password_plain) so NO backend change. Frontend-only; user tests UI."
   - task: "MOVE cek berkas to Super Admin Data Pendaftar (Berkas column) + Hapus action; keep Berkas column in Panitia"
     implemented: true
     working: "NA"
