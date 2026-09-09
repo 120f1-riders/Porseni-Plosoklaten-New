@@ -8,7 +8,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "https://absensi-foto-cetak.preview.emergentagent.com/api"
+BASE_URL = "https://registration-data.preview.emergentagent.com/api"
 
 def log(msg):
     print(f"[TEST] {msg}")

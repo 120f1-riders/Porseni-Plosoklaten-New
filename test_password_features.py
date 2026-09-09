@@ -9,7 +9,7 @@ import json
 from datetime import datetime
 
 # Base URL from .env
-BASE_URL = "https://absensi-foto-cetak.preview.emergentagent.com/api"
+BASE_URL = "https://registration-data.preview.emergentagent.com/api"
 
 # Test data storage
 test_data = {
