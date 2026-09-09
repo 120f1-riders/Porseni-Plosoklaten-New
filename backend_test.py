@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-Backend API Test Suite for Porseni MI Plosoklaten
-Tests: Users PUT edit — email (dedup) + role (with role-consistent field cleanup)
+Backend test for DELETE /peserta/:id authorization scoping
+Tests role-based authorization: super_admin (any), admin_madrasah (own only), panitia (forbidden)
 """
 
 import requests
@@ -10,258 +10,444 @@ import sys
 
 BASE_URL = "https://registration-data.preview.emergentagent.com/api"
 
-def log(msg):
-    print(f"[TEST] {msg}")
-
-def test_users_put_edit():
+def test_delete_peserta_authorization():
     """
-    Test Users PUT edit — now accepts email (dedup) + role (with role-consistent field cleanup)
-    
-    Steps:
-    1. Login super_admin, get token (Bearer)
-    2. Create 2 lomba (Test Lomba A - Olahraga/individu, Test Lomba B - Seni/individu), capture IDs
-    3. POST /api/users create panitia user with assigned_lomba_id = Lomba A id
-    4. PUT /api/users/:id {assigned_lomba_id: Lomba B id} - verify it changes to Lomba B
-    5. PUT /api/users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} - verify assigned_lomba_id becomes null and madrasah_name='MI Test'
-    6. Create another user with email user.two@porseni.id, then PUT panitia user {email:'user.two@porseni.id'} - should return 400 (duplicate)
-    7. PUT panitia user {email:'panitia.new@porseni.id'} (unique) - should persist; login with new email and default password 12345678 should succeed
-    8. Regression: PUT {name:'Renamed'} and PUT {status:'pending'} still work. Non-super attempt (create/login admin_madrasah, use its token) PUT /api/users/:id must return 403
+    Test DELETE /peserta/:id authorization scoping:
+    - super_admin: can delete ANY peserta (200)
+    - admin_madrasah: can delete ONLY its own peserta (created_by === self). Deleting another madrasah's peserta -> 403
+    - panitia: always 403
+    - unknown/non-existent peserta id -> 404
+    - no auth token -> 401
     """
+    print("\n" + "="*80)
+    print("TEST: DELETE /peserta/:id Authorization Scoping")
+    print("="*80)
     
+    # Step 1: Login super_admin
+    print("\n[1] Login super_admin (super@porseni.id/admin123)")
     try:
-        # Step 1: Login super_admin
-        log("Step 1: Login super_admin (super@porseni.id / admin123)")
         resp = requests.post(f"{BASE_URL}/auth/login", json={
             "email": "super@porseni.id",
             "password": "admin123"
         })
-        assert resp.status_code == 200, f"Super admin login failed: {resp.status_code} {resp.text}"
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
         data = resp.json()
         super_token = data.get("token")
-        assert super_token, "No token in super admin login response"
-        log(f"✅ Super admin login successful, token: {super_token[:20]}...")
-        
-        headers = {"Authorization": f"Bearer {super_token}"}
-        
-        # Step 2: Create 2 lomba
-        log("Step 2: Create Test Lomba A (Olahraga/individu)")
-        resp = requests.post(f"{BASE_URL}/lomba", json={
-            "name": "Test Lomba A",
-            "category": "Olahraga",
-            "type": "individu"
-        }, headers=headers)
-        assert resp.status_code == 200, f"Create Lomba A failed: {resp.status_code} {resp.text}"
-        lomba_a = resp.json()
-        lomba_a_id = lomba_a.get("id")
-        assert lomba_a_id, "No id in Lomba A response"
-        log(f"✅ Lomba A created: {lomba_a_id}, name={lomba_a.get('name')}")
-        
-        log("Step 2: Create Test Lomba B (Seni/individu)")
-        resp = requests.post(f"{BASE_URL}/lomba", json={
-            "name": "Test Lomba B",
-            "category": "Seni",
-            "type": "individu"
-        }, headers=headers)
-        assert resp.status_code == 200, f"Create Lomba B failed: {resp.status_code} {resp.text}"
-        lomba_b = resp.json()
-        lomba_b_id = lomba_b.get("id")
-        assert lomba_b_id, "No id in Lomba B response"
-        log(f"✅ Lomba B created: {lomba_b_id}, name={lomba_b.get('name')}")
-        
-        # Step 3: POST /api/users create panitia user with assigned_lomba_id = Lomba A id
-        log(f"Step 3: Create panitia user 'Panitia Test' with assigned_lomba_id={lomba_a_id}")
-        resp = requests.post(f"{BASE_URL}/users", json={
-            "name": "Panitia Test",
-            "email": "panitia.test@porseni.id",
-            "role": "panitia",
-            "assigned_lomba_id": lomba_a_id
-        }, headers=headers)
-        assert resp.status_code == 200, f"Create panitia user failed: {resp.status_code} {resp.text}"
-        panitia_user = resp.json()
-        panitia_id = panitia_user.get("id")
-        assert panitia_id, "No id in panitia user response"
-        assert panitia_user.get("assigned_lomba_id") == lomba_a_id, f"assigned_lomba_id mismatch: expected {lomba_a_id}, got {panitia_user.get('assigned_lomba_id')}"
-        assert panitia_user.get("role") == "panitia", f"Role mismatch: expected panitia, got {panitia_user.get('role')}"
-        assert panitia_user.get("status") == "verified", f"Status should be verified, got {panitia_user.get('status')}"
-        log(f"✅ Panitia user created: {panitia_id}, assigned_lomba_id={panitia_user.get('assigned_lomba_id')}")
-        
-        # Step 4: PUT /api/users/:id {assigned_lomba_id: Lomba B id} - verify it changes to Lomba B
-        log(f"Step 4: PUT /api/users/{panitia_id} {{assigned_lomba_id: {lomba_b_id}}}")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "assigned_lomba_id": lomba_b_id
-        }, headers=headers)
-        assert resp.status_code == 200, f"PUT assigned_lomba_id failed: {resp.status_code} {resp.text}"
-        updated_user = resp.json()
-        assert updated_user.get("assigned_lomba_id") == lomba_b_id, f"assigned_lomba_id not updated: expected {lomba_b_id}, got {updated_user.get('assigned_lomba_id')}"
-        log(f"✅ assigned_lomba_id updated to Lomba B: {updated_user.get('assigned_lomba_id')}")
-        
-        # Verify with GET /api/users
-        log("Step 4: Verify with GET /api/users")
-        resp = requests.get(f"{BASE_URL}/users", headers=headers)
-        assert resp.status_code == 200, f"GET /users failed: {resp.status_code} {resp.text}"
-        users = resp.json()
-        panitia_in_list = next((u for u in users if u.get("id") == panitia_id), None)
-        assert panitia_in_list, "Panitia user not found in GET /users"
-        assert panitia_in_list.get("assigned_lomba_id") == lomba_b_id, f"GET /users shows wrong assigned_lomba_id: expected {lomba_b_id}, got {panitia_in_list.get('assigned_lomba_id')}"
-        log(f"✅ GET /users confirms assigned_lomba_id={panitia_in_list.get('assigned_lomba_id')}")
-        
-        # Step 5: PUT /api/users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} - verify assigned_lomba_id becomes null and madrasah_name='MI Test'
-        log(f"Step 5: PUT /api/users/{panitia_id} {{role:'admin_madrasah', madrasah_name:'MI Test'}}")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "role": "admin_madrasah",
-            "madrasah_name": "MI Test"
-        }, headers=headers)
-        assert resp.status_code == 200, f"PUT role change failed: {resp.status_code} {resp.text}"
-        updated_user = resp.json()
-        assert updated_user.get("role") == "admin_madrasah", f"Role not updated: expected admin_madrasah, got {updated_user.get('role')}"
-        assert updated_user.get("madrasah_name") == "MI Test", f"madrasah_name not updated: expected 'MI Test', got {updated_user.get('madrasah_name')}"
-        assert updated_user.get("assigned_lomba_id") is None, f"assigned_lomba_id should be null for admin_madrasah, got {updated_user.get('assigned_lomba_id')}"
-        log(f"✅ Role changed to admin_madrasah, madrasah_name='MI Test', assigned_lomba_id=null")
-        
-        # Verify with GET /api/users
-        log("Step 5: Verify with GET /api/users")
-        resp = requests.get(f"{BASE_URL}/users", headers=headers)
-        assert resp.status_code == 200, f"GET /users failed: {resp.status_code} {resp.text}"
-        users = resp.json()
-        user_in_list = next((u for u in users if u.get("id") == panitia_id), None)
-        assert user_in_list, "User not found in GET /users"
-        assert user_in_list.get("role") == "admin_madrasah", f"GET /users shows wrong role: expected admin_madrasah, got {user_in_list.get('role')}"
-        assert user_in_list.get("madrasah_name") == "MI Test", f"GET /users shows wrong madrasah_name: expected 'MI Test', got {user_in_list.get('madrasah_name')}"
-        assert user_in_list.get("assigned_lomba_id") is None, f"GET /users shows assigned_lomba_id should be null, got {user_in_list.get('assigned_lomba_id')}"
-        log(f"✅ GET /users confirms role=admin_madrasah, madrasah_name='MI Test', assigned_lomba_id=null")
-        
-        # Step 6: Create another user with email user.two@porseni.id, then PUT panitia user {email:'user.two@porseni.id'} - should return 400 (duplicate)
-        log("Step 6: Create another user 'User Two' with email user.two@porseni.id")
-        resp = requests.post(f"{BASE_URL}/users", json={
-            "name": "User Two",
-            "email": "user.two@porseni.id",
-            "role": "admin_madrasah",
-            "madrasah_name": "MI Two"
-        }, headers=headers)
-        assert resp.status_code == 200, f"Create User Two failed: {resp.status_code} {resp.text}"
-        user_two = resp.json()
-        user_two_id = user_two.get("id")
-        assert user_two_id, "No id in User Two response"
-        log(f"✅ User Two created: {user_two_id}, email={user_two.get('email')}")
-        
-        log(f"Step 6: PUT /api/users/{panitia_id} {{email:'user.two@porseni.id'}} - should return 400 (duplicate)")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "email": "user.two@porseni.id"
-        }, headers=headers)
-        assert resp.status_code == 400, f"Expected 400 for duplicate email, got {resp.status_code} {resp.text}"
-        error_data = resp.json()
-        assert "error" in error_data, "No error field in 400 response"
-        log(f"✅ Duplicate email rejected with 400: {error_data.get('error')}")
-        
-        # Step 7: PUT panitia user {email:'panitia.new@porseni.id'} (unique) - should persist; login with new email and default password 12345678 should succeed
-        log(f"Step 7: PUT /api/users/{panitia_id} {{email:'panitia.new@porseni.id'}} (unique)")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "email": "panitia.new@porseni.id"
-        }, headers=headers)
-        assert resp.status_code == 200, f"PUT unique email failed: {resp.status_code} {resp.text}"
-        updated_user = resp.json()
-        assert updated_user.get("email") == "panitia.new@porseni.id", f"Email not updated: expected 'panitia.new@porseni.id', got {updated_user.get('email')}"
-        log(f"✅ Email updated to 'panitia.new@porseni.id'")
-        
-        # Verify with GET /api/users
-        log("Step 7: Verify with GET /api/users")
-        resp = requests.get(f"{BASE_URL}/users", headers=headers)
-        assert resp.status_code == 200, f"GET /users failed: {resp.status_code} {resp.text}"
-        users = resp.json()
-        user_in_list = next((u for u in users if u.get("id") == panitia_id), None)
-        assert user_in_list, "User not found in GET /users"
-        assert user_in_list.get("email") == "panitia.new@porseni.id", f"GET /users shows wrong email: expected 'panitia.new@porseni.id', got {user_in_list.get('email')}"
-        log(f"✅ GET /users confirms email='panitia.new@porseni.id'")
-        
-        # Login with new email and default password 12345678
-        log("Step 7: Login with new email 'panitia.new@porseni.id' and default password '12345678'")
-        resp = requests.post(f"{BASE_URL}/auth/login", json={
-            "email": "panitia.new@porseni.id",
-            "password": "12345678"
-        })
-        assert resp.status_code == 200, f"Login with new email failed: {resp.status_code} {resp.text}"
-        login_data = resp.json()
-        assert "token" in login_data, "No token in login response"
-        assert login_data.get("user", {}).get("email") == "panitia.new@porseni.id", f"Login user email mismatch: expected 'panitia.new@porseni.id', got {login_data.get('user', {}).get('email')}"
-        log(f"✅ Login with new email successful, token: {login_data.get('token')[:20]}...")
-        
-        # Step 8: Regression: PUT {name:'Renamed'} and PUT {status:'pending'} still work
-        log(f"Step 8: Regression - PUT /api/users/{panitia_id} {{name:'Renamed'}}")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "name": "Renamed"
-        }, headers=headers)
-        assert resp.status_code == 200, f"PUT name failed: {resp.status_code} {resp.text}"
-        updated_user = resp.json()
-        assert updated_user.get("name") == "Renamed", f"Name not updated: expected 'Renamed', got {updated_user.get('name')}"
-        log(f"✅ PUT name='Renamed' successful")
-        
-        log(f"Step 8: Regression - PUT /api/users/{panitia_id} {{status:'pending'}}")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "status": "pending"
-        }, headers=headers)
-        assert resp.status_code == 200, f"PUT status failed: {resp.status_code} {resp.text}"
-        updated_user = resp.json()
-        assert updated_user.get("status") == "pending", f"Status not updated: expected 'pending', got {updated_user.get('status')}"
-        log(f"✅ PUT status='pending' successful")
-        
-        # Step 8: Non-super attempt (create/login admin_madrasah, use its token) PUT /api/users/:id must return 403
-        log("Step 8: Create and login admin_madrasah user for non-super test")
-        resp = requests.post(f"{BASE_URL}/users", json={
-            "name": "Admin Madrasah Test",
-            "email": "admin.test@porseni.id",
-            "role": "admin_madrasah",
-            "madrasah_name": "MI Test Admin"
-        }, headers=headers)
-        assert resp.status_code == 200, f"Create admin_madrasah failed: {resp.status_code} {resp.text}"
-        admin_user = resp.json()
-        admin_id = admin_user.get("id")
-        log(f"✅ Admin madrasah user created: {admin_id}")
-        
-        # Login as admin_madrasah
-        resp = requests.post(f"{BASE_URL}/auth/login", json={
-            "email": "admin.test@porseni.id",
-            "password": "12345678"
-        })
-        assert resp.status_code == 200, f"Admin madrasah login failed: {resp.status_code} {resp.text}"
-        admin_token = resp.json().get("token")
-        assert admin_token, "No token in admin madrasah login response"
-        log(f"✅ Admin madrasah login successful, token: {admin_token[:20]}...")
-        
-        admin_headers = {"Authorization": f"Bearer {admin_token}"}
-        
-        # Try to PUT /api/users/:id as admin_madrasah - should return 403
-        log(f"Step 8: Non-super attempt - PUT /api/users/{panitia_id} as admin_madrasah - should return 403")
-        resp = requests.put(f"{BASE_URL}/users/{panitia_id}", json={
-            "name": "Should Fail"
-        }, headers=admin_headers)
-        assert resp.status_code == 403, f"Expected 403 for non-super PUT /users, got {resp.status_code} {resp.text}"
-        error_data = resp.json()
-        assert "error" in error_data, "No error field in 403 response"
-        log(f"✅ Non-super PUT /users rejected with 403: {error_data.get('error')}")
-        
-        # Cleanup: Delete test lomba and users
-        log("Cleanup: Deleting test lomba and users")
-        requests.delete(f"{BASE_URL}/lomba/{lomba_a_id}", headers=headers)
-        requests.delete(f"{BASE_URL}/lomba/{lomba_b_id}", headers=headers)
-        requests.delete(f"{BASE_URL}/users/{panitia_id}", headers=headers)
-        requests.delete(f"{BASE_URL}/users/{user_two_id}", headers=headers)
-        requests.delete(f"{BASE_URL}/users/{admin_id}", headers=headers)
-        log("✅ Cleanup complete")
-        
-        log("=" * 80)
-        log("✅ ALL TESTS PASSED - Users PUT edit (email dedup + role) working correctly")
-        log("=" * 80)
-        return True
-        
-    except AssertionError as e:
-        log(f"❌ TEST FAILED: {str(e)}")
-        return False
+        if not super_token:
+            print(f"    ❌ FAILED: No token in response")
+            return False
+        print(f"    ✅ PASSED: super_admin login successful, token: {super_token[:20]}...")
     except Exception as e:
-        log(f"❌ TEST ERROR: {str(e)}")
-        import traceback
-        traceback.print_exc()
+        print(f"    ❌ FAILED: Exception during super_admin login: {e}")
         return False
+    
+    # Step 2: Create a lomba
+    print("\n[2] Create a lomba (POST /api/lomba)")
+    try:
+        resp = requests.post(f"{BASE_URL}/lomba", 
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Test Delete Auth",
+                "category": "Olahraga",
+                "type": "individu"
+            })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        lomba = resp.json()
+        lomba_id = lomba.get("id")
+        print(f"    ✅ PASSED: Lomba created, id: {lomba_id}")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during lomba creation: {e}")
+        return False
+    
+    # Step 3: Create admin_madrasah user 'MI A'
+    print("\n[3] Create admin_madrasah user 'MI A' (POST /api/users)")
+    try:
+        resp = requests.post(f"{BASE_URL}/users",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Admin MI A",
+                "email": f"mi.a.{lomba_id[:8]}@test.porseni.id",
+                "role": "admin_madrasah",
+                "madrasah_name": "MI A"
+            })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        mi_a_user = resp.json()
+        mi_a_email = mi_a_user.get("email")
+        print(f"    ✅ PASSED: MI A user created, email: {mi_a_email}")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during MI A user creation: {e}")
+        return False
+    
+    # Step 3b: Login MI A (default password 12345678)
+    print("\n[3b] Login MI A (default password 12345678)")
+    try:
+        resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": mi_a_email,
+            "password": "12345678"
+        })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        data = resp.json()
+        mi_a_token = data.get("token")
+        if not mi_a_token:
+            print(f"    ❌ FAILED: No token in response")
+            return False
+        print(f"    ✅ PASSED: MI A login successful, token: {mi_a_token[:20]}...")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during MI A login: {e}")
+        return False
+    
+    # Step 4: Create admin_madrasah user 'MI B'
+    print("\n[4] Create admin_madrasah user 'MI B' (POST /api/users)")
+    try:
+        resp = requests.post(f"{BASE_URL}/users",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Admin MI B",
+                "email": f"mi.b.{lomba_id[:8]}@test.porseni.id",
+                "role": "admin_madrasah",
+                "madrasah_name": "MI B"
+            })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        mi_b_user = resp.json()
+        mi_b_email = mi_b_user.get("email")
+        print(f"    ✅ PASSED: MI B user created, email: {mi_b_email}")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during MI B user creation: {e}")
+        return False
+    
+    # Step 4b: Login MI B
+    print("\n[4b] Login MI B (default password 12345678)")
+    try:
+        resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": mi_b_email,
+            "password": "12345678"
+        })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        data = resp.json()
+        mi_b_token = data.get("token")
+        if not mi_b_token:
+            print(f"    ❌ FAILED: No token in response")
+            return False
+        print(f"    ✅ PASSED: MI B login successful, token: {mi_b_token[:20]}...")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during MI B login: {e}")
+        return False
+    
+    # Step 5: MI A creates peserta1
+    print("\n[5] MI A: POST /api/peserta -> peserta1 (created_by MI A)")
+    try:
+        resp = requests.post(f"{BASE_URL}/peserta",
+            headers={"Authorization": f"Bearer {mi_a_token}"},
+            json={
+                "participant_name": "Peserta A",
+                "gender": "L",
+                "lomba_id": lomba_id
+            })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        peserta1 = resp.json()
+        peserta1_id = peserta1.get("id")
+        print(f"    ✅ PASSED: Peserta A created by MI A, id: {peserta1_id}")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during peserta1 creation: {e}")
+        return False
+    
+    # Step 6: MI B creates peserta2
+    print("\n[6] MI B: POST /api/peserta -> peserta2 (created_by MI B)")
+    try:
+        resp = requests.post(f"{BASE_URL}/peserta",
+            headers={"Authorization": f"Bearer {mi_b_token}"},
+            json={
+                "participant_name": "Peserta B",
+                "gender": "P",
+                "lomba_id": lomba_id
+            })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        peserta2 = resp.json()
+        peserta2_id = peserta2.get("id")
+        print(f"    ✅ PASSED: Peserta B created by MI B, id: {peserta2_id}")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during peserta2 creation: {e}")
+        return False
+    
+    # Step 7: MI A tries to DELETE peserta2 (not own) -> expect 403
+    print("\n[7] MI A DELETE /api/peserta/<peserta2.id> -> expect 403 (not own)")
+    try:
+        resp = requests.delete(f"{BASE_URL}/peserta/{peserta2_id}",
+            headers={"Authorization": f"Bearer {mi_a_token}"})
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 403:
+            print(f"    ❌ FAILED: Expected 403, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        print(f"    ✅ PASSED: MI A cannot delete MI B's peserta (403)")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during MI A delete peserta2: {e}")
+        return False
+    
+    # Step 8: MI A DELETE peserta1 (own) -> expect 200
+    print("\n[8] MI A DELETE /api/peserta/<peserta1.id> -> expect 200 (own)")
+    try:
+        resp = requests.delete(f"{BASE_URL}/peserta/{peserta1_id}",
+            headers={"Authorization": f"Bearer {mi_a_token}"})
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        print(f"    ✅ PASSED: MI A successfully deleted own peserta (200)")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during MI A delete peserta1: {e}")
+        return False
+    
+    # Step 8b: Verify peserta1 is gone (GET /api/peserta as MI A)
+    print("\n[8b] Verify peserta1 is gone (GET /api/peserta as MI A)")
+    try:
+        resp = requests.get(f"{BASE_URL}/peserta",
+            headers={"Authorization": f"Bearer {mi_a_token}"})
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        peserta_list = resp.json()
+        peserta1_exists = any(p.get("id") == peserta1_id for p in peserta_list)
+        if peserta1_exists:
+            print(f"    ❌ FAILED: peserta1 still exists in GET /peserta")
+            return False
+        print(f"    ✅ PASSED: peserta1 no longer in MI A's peserta list")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during GET /peserta: {e}")
+        return False
+    
+    # Step 9: Create panitia user
+    print("\n[9] Create panitia user (POST /api/users)")
+    try:
+        resp = requests.post(f"{BASE_URL}/users",
+            headers={"Authorization": f"Bearer {super_token}"},
+            json={
+                "name": "Panitia Test",
+                "email": f"panitia.{lomba_id[:8]}@test.porseni.id",
+                "role": "panitia",
+                "assigned_lomba_id": lomba_id
+            })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        panitia_user = resp.json()
+        panitia_email = panitia_user.get("email")
+        print(f"    ✅ PASSED: Panitia user created, email: {panitia_email}")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during panitia user creation: {e}")
+        return False
+    
+    # Step 9b: Login panitia
+    print("\n[9b] Login panitia (default password 12345678)")
+    try:
+        resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": panitia_email,
+            "password": "12345678"
+        })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        data = resp.json()
+        panitia_token = data.get("token")
+        if not panitia_token:
+            print(f"    ❌ FAILED: No token in response")
+            return False
+        print(f"    ✅ PASSED: Panitia login successful, token: {panitia_token[:20]}...")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during panitia login: {e}")
+        return False
+    
+    # Step 9c: Panitia tries to DELETE peserta2 -> expect 403
+    print("\n[9c] Panitia DELETE /api/peserta/<peserta2.id> -> expect 403")
+    try:
+        resp = requests.delete(f"{BASE_URL}/peserta/{peserta2_id}",
+            headers={"Authorization": f"Bearer {panitia_token}"})
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 403:
+            print(f"    ❌ FAILED: Expected 403, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        print(f"    ✅ PASSED: Panitia cannot delete peserta (403)")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during panitia delete peserta2: {e}")
+        return False
+    
+    # Step 10: super_admin DELETE peserta2 -> expect 200
+    print("\n[10] super_admin DELETE /api/peserta/<peserta2.id> -> expect 200")
+    try:
+        resp = requests.delete(f"{BASE_URL}/peserta/{peserta2_id}",
+            headers={"Authorization": f"Bearer {super_token}"})
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        print(f"    ✅ PASSED: super_admin successfully deleted peserta2 (200)")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during super_admin delete peserta2: {e}")
+        return False
+    
+    # Step 11: super_admin DELETE nonexistent-id-123 -> expect 404
+    print("\n[11] super_admin DELETE /api/peserta/nonexistent-id-123 -> expect 404")
+    try:
+        resp = requests.delete(f"{BASE_URL}/peserta/nonexistent-id-123",
+            headers={"Authorization": f"Bearer {super_token}"})
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 404:
+            print(f"    ❌ FAILED: Expected 404, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        print(f"    ✅ PASSED: DELETE nonexistent peserta returns 404")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during delete nonexistent: {e}")
+        return False
+    
+    # Step 12: DELETE with NO Authorization header -> expect 401
+    print("\n[12] DELETE /api/peserta/<any> with NO Authorization header -> expect 401")
+    try:
+        resp = requests.delete(f"{BASE_URL}/peserta/{lomba_id}")  # use lomba_id as dummy id
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 401:
+            print(f"    ❌ FAILED: Expected 401, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        print(f"    ✅ PASSED: DELETE without token returns 401")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during delete without token: {e}")
+        return False
+    
+    print("\n" + "="*80)
+    print("✅ ALL DELETE /peserta/:id AUTHORIZATION TESTS PASSED")
+    print("="*80)
+    return True
+
+
+def test_regression():
+    """
+    Quick regression tests:
+    - GET /api/lomba (public) returns 200
+    - super_admin login returns 200 with no password/token leak
+    """
+    print("\n" + "="*80)
+    print("REGRESSION TESTS")
+    print("="*80)
+    
+    # Test 1: GET /api/lomba (public)
+    print("\n[R1] GET /api/lomba (public, no auth) -> expect 200")
+    try:
+        resp = requests.get(f"{BASE_URL}/lomba")
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        data = resp.json()
+        if not isinstance(data, list):
+            print(f"    ❌ FAILED: Expected array, got {type(data)}")
+            return False
+        print(f"    ✅ PASSED: GET /lomba returns 200 with array ({len(data)} items)")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during GET /lomba: {e}")
+        return False
+    
+    # Test 2: super_admin login with no password/token leak
+    print("\n[R2] super_admin login -> expect 200 with no password/token leak")
+    try:
+        resp = requests.post(f"{BASE_URL}/auth/login", json={
+            "email": "super@porseni.id",
+            "password": "admin123"
+        })
+        print(f"    Status: {resp.status_code}")
+        if resp.status_code != 200:
+            print(f"    ❌ FAILED: Expected 200, got {resp.status_code}")
+            print(f"    Response: {resp.text}")
+            return False
+        data = resp.json()
+        token = data.get("token")
+        user = data.get("user")
+        if not token:
+            print(f"    ❌ FAILED: No token in response")
+            return False
+        if not user:
+            print(f"    ❌ FAILED: No user in response")
+            return False
+        # Check for leaks
+        if "password" in user or "password_plain" in user or "token" in user or "_id" in user:
+            print(f"    ❌ FAILED: User object contains sensitive fields: {user.keys()}")
+            return False
+        print(f"    ✅ PASSED: super_admin login successful, no sensitive data leaks")
+    except Exception as e:
+        print(f"    ❌ FAILED: Exception during super_admin login: {e}")
+        return False
+    
+    print("\n" + "="*80)
+    print("✅ ALL REGRESSION TESTS PASSED")
+    print("="*80)
+    return True
+
 
 if __name__ == "__main__":
-    success = test_users_put_edit()
-    sys.exit(0 if success else 1)
+    print("\n" + "="*80)
+    print("BACKEND TESTING: DELETE /peserta/:id Authorization Scoping")
+    print("Base URL:", BASE_URL)
+    print("="*80)
+    
+    all_passed = True
+    
+    # Run main authorization tests
+    if not test_delete_peserta_authorization():
+        all_passed = False
+    
+    # Run regression tests
+    if not test_regression():
+        all_passed = False
+    
+    if all_passed:
+        print("\n" + "="*80)
+        print("🎉 ALL TESTS PASSED 🎉")
+        print("="*80)
+        sys.exit(0)
+    else:
+        print("\n" + "="*80)
+        print("❌ SOME TESTS FAILED")
+        print("="*80)
+        sys.exit(1)

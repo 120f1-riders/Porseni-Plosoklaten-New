@@ -321,7 +321,34 @@ backend:
         -agent: "testing"
         -comment: "✅ ALL 6 SCENARIOS PASSED (comprehensive backend testing). (1) POST /users bulk-create (7/7 tests): super_admin creates verified user with default password '12345678', no password hash/token/_id leak in response, login with default password succeeds (proves auto-verified), duplicate email rejected with 400, non-super user POST /users rejected with 403. (2) PUT /peserta/:id/status super_admin-only (4/4 tests): admin_madrasah PUT /peserta/:id/status rejected with 403, super_admin PUT /peserta/:id/status returns 200 with status=verified. (3) Lomba idcard_image_url (4/4 tests): POST /lomba with idcard_image_url persists correctly, PUT /lomba/:id updates idcard_image_url, GET /lomba includes idcard_image_url. (4) Juara gender upsert by lomba_id+rank+gender (9/9 tests): POST /juara with rank='Juara 1' gender='L' creates juara L, POST /juara with rank='Juara 1' gender='P' creates juara P, GET /juara returns 2 docs (both rank='Juara 1', genders L and P coexist), POST /juara again with same rank+gender upserts (replaces L only, P unchanged, still 2 total docs). (5) Backup & Restore (4/4 tests): GET /admin/backup returns collections array with all 8 keys (users, lomba, peserta, hasil, juara, templates, files, settings), non-super GET /admin/backup rejected with 403, POST /admin/restore round-trips successfully, GET /auth/me with SAME super_admin token returns 200 (session preserved, not locked out). (6) computeComplete requires 5 files (2/2 tests): POST /peserta with only 3 files (akte, surat_ket, pas_photo) returns complete=false, PUT /peserta/:id adding nisn_doc and raport (all 5 files) returns complete=true. All backend APIs functioning correctly with proper authentication, authorization, data persistence, and validation. NO SENSITIVE DATA LEAKS DETECTED."
 
+  - task: "DELETE /peserta/:id authorization scoping (super_admin any; admin_madrasah own only; panitia forbidden)"
+    implemented: true
+    working: true
+    file: "app/api/[[...path]]/route.js"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "CHANGE: DELETE /peserta/:id now role-scoped. super_admin deletes any; admin_madrasah only own (created_by===self else 403); panitia always 403; unknown id -> 404; no token -> 401. Previously any authenticated user could delete any peserta."
+        -working: true
+        -agent: "testing"
+        -comment: "✅ ALL 14 TESTS PASSED (12 authorization tests + 2 regression tests). Comprehensive testing of DELETE /peserta/:id authorization scoping: (1) super_admin login successful. (2) Created lomba 'Test Delete Auth' (Olahraga/individu). (3) Created admin_madrasah user 'MI A', login successful. (4) Created admin_madrasah user 'MI B', login successful. (5) MI A created peserta1 (Peserta A, gender L). (6) MI B created peserta2 (Peserta B, gender P). (7) MI A DELETE peserta2 (not own) -> 403 as expected (admin_madrasah can only delete own peserta). (8) MI A DELETE peserta1 (own) -> 200 successful. (9) Verified peserta1 no longer in MI A's GET /peserta list. (10) Created panitia user assigned to lomba, login successful. (11) Panitia DELETE peserta2 -> 403 as expected (panitia cannot delete any peserta). (12) super_admin DELETE peserta2 -> 200 successful (super_admin can delete any peserta). (13) super_admin DELETE nonexistent-id-123 -> 404 as expected. (14) DELETE without Authorization header -> 401 as expected. Regression tests: GET /lomba (public) returns 200 with array, super_admin login returns 200 with no password/password_plain/token/_id leaks. All authorization rules working correctly: super_admin can delete ANY peserta, admin_madrasah can delete ONLY own peserta (created_by check), panitia always forbidden, proper 404 for nonexistent id, proper 401 for missing token."
+
 frontend:
+  - task: "MOVE cek berkas to Super Admin Data Pendaftar (Berkas column) + Hapus action; keep Berkas column in Panitia"
+    implemented: true
+    working: "NA"
+    file: "components/porseni/SuperAdmin.jsx"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+        -working: "NA"
+        -agent: "main"
+        -comment: "User request: (1) add 'cek berkas pendaftar' (file view links) to Super Admin Data Pendaftar (Panitia keeps its Berkas column too). (2) Add Hapus (delete) action on Super Admin Data Pendaftar. Added new 'Berkas' column (file links via fileUrl) between Cabang Lomba and Kelengkapan, and a Trash2 delete button (with confirm) in Aksi column calling DELETE /peserta/:id then reload. Panitia.jsx unchanged. Frontend not auto-tested (user tests UI)."
+
   - task: "NEW: Cetak Absensi photo column + Manajemen Pengguna edit dialog (divisi lomba) + Tempat Tgl Lahir (TTL) column"
     implemented: true
     working: "NA"
@@ -379,7 +406,7 @@ frontend:
 metadata:
   created_by: "main_agent"
   version: "1.0"
-  test_sequence: 7
+  test_sequence: 9
   run_ui: false
 
 test_plan:
@@ -391,6 +418,8 @@ test_plan:
 
 agent_communication:
     -agent: "main"
+    -message: "NEW DELTA to test (backend only, high_first). Task: 'DELETE /peserta/:id authorization scoping'. .env was missing on continuation start -> restored (MONGO_URL, DB_NAME=porseni_db, NEXT_PUBLIC_BASE_URL, CORS) + re-seeded super_admin (super@porseni.id/admin123, only user). Backend change: DELETE /peserta/:id now role-scoped: super_admin can delete any peserta; admin_madrasah only own (created_by===self else 403); panitia always 403; unknown id -> 404; no token -> 401. Test steps: (1) super_admin login; create a lomba; create an admin_madrasah user (POST /users) 'MI A' + login; admin_madrasah POST /peserta -> peserta1 (own). (2) create second admin_madrasah 'MI B' + login; POST /peserta -> peserta2. (3) MI A DELETE peserta2 -> 403 (not own); MI A DELETE peserta1 -> 200 (own, gone from GET). (4) create a panitia user assigned to lomba; panitia DELETE any peserta -> 403. (5) super_admin DELETE remaining peserta -> 200. (6) DELETE unknown id -> 404; DELETE with no token -> 401. Do NOT test Google integration endpoints."
+
     -message: "CONTINUATION DELTA. .env was missing on start -> restored (MONGO_URL, DB_NAME, NEXT_PUBLIC_BASE_URL, CORS) + re-seeded super_admin (super@porseni.id/admin123, only user). Please test ONLY backend, high_first, the task 'Users PUT edit — now accepts email (dedup) + role'. Steps: (1) POST /users create a panitia user (need a lomba first: POST /lomba as super_admin). (2) PUT /users/:id {assigned_lomba_id: <other lomba id>} persists (GET /users shows updated). (3) PUT /users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} nulls assigned_lomba_id and sets madrasah_name. (4) PUT /users/:id {email:'<existing other user email>'} -> 400 duplicate; PUT unique new email -> persists and login works with new email. (5) Regression: PUT name/status still work; non-super PUT -> 403. Do NOT test Google integration endpoints."
     -agent: "main"
     -message: "NEW backend delta to test: password features. (1) register stores password_plain; (2) GET /users returns password_plain for super_admin only (verify NO password_plain/hash/token leak in /auth/login, /auth/register, /auth/me); (3) PUT /users/:id {password} resets password (login with new password must work) and clears reset_requested; (4) POST /auth/forgot {email} public sets reset_requested true (generic ok msg even for unknown email). Kop surat uses existing /templates type=kopsurat (no new endpoint). Super admin: super@porseni.id / admin123."
@@ -440,3 +469,5 @@ agent_communication:
     -message: "✅ NEW FEATURE DELTA BACKEND TESTING COMPLETE - ALL 6 SCENARIOS PASSED (30 total tests). Comprehensive testing of all new backend features: (1) POST /users bulk-create: super_admin-only, auto-verified, default password '12345678', duplicate rejection, non-super 403, no leaks. (2) PUT /peserta/:id/status: super_admin-only (admin_madrasah 403, super_admin 200). (3) Lomba idcard_image_url: POST/PUT/GET all working. (4) Juara gender: upsert by lomba_id+rank+gender (L and P coexist for same rank, same rank+gender upserts correctly). (5) Backup & Restore: GET /admin/backup returns all 8 collections, non-super 403, POST /admin/restore round-trips, session preserved. (6) computeComplete: requires 5 files (akte, surat_ket, pas_photo, nisn_doc, raport) - 3 files = complete:false, 5 files = complete:true. All backend APIs functioning correctly with proper authentication, authorization, data persistence, and validation. NO SENSITIVE DATA LEAKS DETECTED. Ready for main agent to summarize and finish."
     -agent: "testing"
     -message: "✅ USERS PUT EDIT BACKEND TESTING COMPLETE - ALL 8 TEST SCENARIOS PASSED. Comprehensive testing of 'Users PUT edit — now accepts email (dedup) + role (with role-consistent field cleanup)' feature: (1) Super admin login successful. (2) Created 2 lomba (Test Lomba A - Olahraga/individu, Test Lomba B - Seni/individu). (3) POST /users created panitia user with assigned_lomba_id=Lomba A id, status=verified. (4) PUT /users/:id {assigned_lomba_id: Lomba B id} successfully updated (divisi lomba edit feature working), verified with GET /users. (5) PUT /users/:id {role:'admin_madrasah', madrasah_name:'MI Test'} successfully changed role, set madrasah_name, and nulled assigned_lomba_id (role-consistent field cleanup working), verified with GET /users. (6) Duplicate email correctly rejected with HTTP 400 'Email sudah digunakan pengguna lain'. (7) Unique email update persisted, login with new email 'panitia.new@porseni.id' and default password '12345678' succeeded. (8) Regression tests passed: PUT {name:'Renamed'} and PUT {status:'pending'} successful; non-super admin PUT /users rejected with HTTP 403 'Akses ditolak'. All features working correctly: email deduplication, role-specific field cleanup (assigned_lomba_id nulled for admin_madrasah, madrasah_name nulled for panitia), email update persistence, regression compatibility, and proper authorization. NO SENSITIVE DATA LEAKS DETECTED. Ready for main agent to summarize and finish."
+    -agent: "testing"
+    -message: "✅ DELETE /peserta/:id AUTHORIZATION SCOPING BACKEND TESTING COMPLETE - ALL 14 TESTS PASSED (12 authorization tests + 2 regression tests). Comprehensive end-to-end testing of role-based DELETE authorization: (1) super_admin can delete ANY peserta (200) - verified by deleting peserta created by MI B. (2) admin_madrasah can delete ONLY own peserta (created_by check) - MI A successfully deleted own peserta1 (200), but MI A DELETE of MI B's peserta2 correctly rejected with 403. (3) panitia role always forbidden (403) - panitia DELETE any peserta correctly rejected with 403. (4) Nonexistent peserta id returns 404 - super_admin DELETE nonexistent-id-123 correctly returned 404. (5) No auth token returns 401 - DELETE without Authorization header correctly returned 401. Regression tests: GET /lomba (public) returns 200 with array, super_admin login returns 200 with no password/password_plain/token/_id leaks. All authorization rules implemented correctly and working as expected. NO SENSITIVE DATA LEAKS DETECTED. Ready for main agent to summarize and finish."

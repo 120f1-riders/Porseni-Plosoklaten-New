@@ -583,6 +583,10 @@ async function handleRoute(request, { params }) {
     if (p[0] === 'peserta' && p[1] && method === 'DELETE') {
       const u = await getUser(request)
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
+      const existing = await db.collection('peserta').findOne({ id: p[1] })
+      if (!existing) return json({ error: 'Peserta tidak ditemukan' }, 404)
+      if (u.role === 'panitia') return json({ error: 'Panitia tidak dapat menghapus data pendaftar' }, 403)
+      if (u.role === 'admin_madrasah' && existing.created_by !== u.id) return json({ error: 'Anda hanya dapat menghapus peserta milik madrasah Anda' }, 403)
       await db.collection('peserta').deleteOne({ id: p[1] })
       return json({ ok: true })
     }

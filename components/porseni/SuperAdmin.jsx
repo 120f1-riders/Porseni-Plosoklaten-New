@@ -708,6 +708,11 @@ function DataPendaftar() {
     try { await api(`/peserta/${id}/status`, { method: 'PUT', body: { status } }); toast.success(status === 'verified' ? 'Peserta diverifikasi' : 'Verifikasi dibatalkan'); load() }
     catch (e) { toast.error(e.message) }
   }
+  const del = async (p) => {
+    if (!confirm(`Hapus data pendaftar "${p.participant_name}" (${p.lomba_name})? Tindakan ini tidak dapat dibatalkan.`)) return
+    try { await api(`/peserta/${p.id}`, { method: 'DELETE' }); toast.success('Data pendaftar dihapus'); load() }
+    catch (e) { toast.error(e.message) }
+  }
 
   const rows = peserta
     .filter((p) => lombaFilter === 'all' ? true : p.lomba_id === lombaFilter)
@@ -799,6 +804,7 @@ function DataPendaftar() {
                   <TableHead>Tempat, Tgl Lahir</TableHead>
                   <TableHead>Asal Madrasah</TableHead>
                   <TableHead>Cabang Lomba</TableHead>
+                  <TableHead>Berkas</TableHead>
                   <TableHead>Kelengkapan</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="text-right">Aksi</TableHead>
@@ -814,12 +820,21 @@ function DataPendaftar() {
                     <TableCell className="text-sm text-muted-foreground">{p.ttl || '-'}</TableCell>
                     <TableCell>{p.madrasah_name}</TableCell>
                     <TableCell>{p.lomba_name}</TableCell>
+                    <TableCell>
+                      <div className="flex gap-1 flex-wrap max-w-[220px]">
+                        {Object.entries(p.files || {}).map(([k, v]) => (
+                          <a key={k} href={fileUrl(v.id)} target="_blank" rel="noreferrer" className="text-xs text-primary underline">{k}</a>
+                        ))}
+                        {(!p.files || Object.keys(p.files).length === 0) && <span className="text-xs text-muted-foreground">-</span>}
+                      </div>
+                    </TableCell>
                     <TableCell>{p.complete ? <Badge className="bg-emerald-600 text-white">Lengkap</Badge> : <Badge variant="outline" className="text-amber-700 border-amber-300">Belum</Badge>}</TableCell>
                     <TableCell><StatusBadge status={p.status} /></TableCell>
                     <TableCell className="text-right whitespace-nowrap">
                       {p.status !== 'verified'
                         ? <Button size="sm" disabled={!p.complete} title={!p.complete ? 'Berkas belum lengkap' : ''} onClick={() => verify(p.id, 'verified')}><CheckCircle className="h-4 w-4 mr-1" />Verifikasi</Button>
                         : <Button size="sm" variant="outline" onClick={() => verify(p.id, 'pending')}>Batalkan</Button>}
+                      <Button size="icon" variant="ghost" className="text-destructive ml-1" title="Hapus data pendaftar" onClick={() => del(p)}><Trash2 className="h-4 w-4" /></Button>
                     </TableCell>
                   </TableRow>
                 ))}
