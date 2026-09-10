@@ -8,7 +8,7 @@ import requests
 import json
 import sys
 
-BASE_URL = "https://registration-data.preview.emergentagent.com/api"
+BASE_URL = "https://sequential-id-maker.preview.emergentagent.com/api"
 
 def test_delete_peserta_authorization():
     """
