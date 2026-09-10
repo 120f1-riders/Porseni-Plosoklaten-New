@@ -479,7 +479,7 @@ async function handleRoute(request, { params }) {
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
       let q = {}
       if (u.role === 'admin_madrasah') q = { created_by: u.id }
-      else if (u.role === 'panitia') q = { lomba_id: u.assigned_lomba_id, complete: true }
+      else if (u.role === 'panitia') q = { lomba_id: u.assigned_lomba_id, complete: true, status: 'verified' }
       const list = await db.collection('peserta').find(q).sort({ created_at: -1 }).toArray()
       return json(list.map(clean))
     }

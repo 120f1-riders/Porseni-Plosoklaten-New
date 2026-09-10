@@ -882,6 +882,7 @@ function CetakAdmin() {
 
   const rows = peserta
     .filter((p) => (lombaFilter ? p.lomba_id === lombaFilter : true))
+    .filter((p) => p.status === 'verified')
     .filter((p) => (gender === 'all' ? true : p.gender === gender))
     .sort((a, b) => String(a.nomor_peserta).localeCompare(String(b.nomor_peserta)))
 
