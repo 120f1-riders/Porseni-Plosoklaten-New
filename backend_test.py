@@ -6,7 +6,7 @@ Tests that panitia users only see verified peserta (not pending/unverified ones)
 import requests
 import json
 
-BASE_URL = "https://eb9e70ff-02ce-4629-97f3-d0b2aa6e6fbe.preview.emergentagent.com/api"
+BASE_URL = "https://admin-edit-portal-1.preview.emergentagent.com/api"
 
 def test_panitia_verified_filter():
     """
