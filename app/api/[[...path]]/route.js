@@ -566,6 +566,9 @@ async function handleRoute(request, { params }) {
     if (p[0] === 'peserta' && p[1] && method === 'PUT') {
       const u = await getUser(request)
       if (!u) return json({ error: 'Tidak terautentikasi' }, 401)
+      const target = await db.collection('peserta').findOne({ id: p[1] })
+      if (!target) return json({ error: 'Peserta tidak ditemukan' }, 404)
+      if (u.role === 'admin_madrasah' && target.created_by !== u.id) return json({ error: 'Anda hanya dapat mengubah peserta milik madrasah Anda' }, 403)
       const b = await request.json()
       const set = {}
       ;['participant_name', 'gender', 'nisn', 'ttl', 'madrasah_name', 'lomba_id', 'files', 'status', 'nomor_peserta'].forEach(k => { if (b[k] !== undefined) set[k] = b[k] })
@@ -573,8 +576,7 @@ async function handleRoute(request, { params }) {
         const lomba = await db.collection('lomba').findOne({ id: b.lomba_id })
         set.lomba_name = lomba ? lomba.name : ''
       }
-      const existing = await db.collection('peserta').findOne({ id: p[1] })
-      const merged = { ...existing, ...set }
+      const merged = { ...target, ...set }
       set.complete = computeComplete(merged)
       await db.collection('peserta').updateOne({ id: p[1] }, { $set: set })
       const doc = await db.collection('peserta').findOne({ id: p[1] })

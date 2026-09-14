@@ -694,6 +694,91 @@ function KopSuratCard() {
 }
 
 /* ---------------- DATA PENDAFTAR (cetak keseluruhan) ---------------- */
+function EditBiodataDialogSA({ peserta, lomba, open, onOpenChange, onSaved }) {
+  const [form, setForm] = useState({ participant_name: '', gender: '', nisn: '', ttl: '', madrasah_name: '', lomba_id: '', nomor_peserta: '' })
+  const [saving, setSaving] = useState(false)
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (open && peserta) setForm({
+      participant_name: peserta.participant_name || '',
+      gender: peserta.gender || '',
+      nisn: peserta.nisn || '',
+      ttl: peserta.ttl || '',
+      madrasah_name: peserta.madrasah_name || '',
+      lomba_id: peserta.lomba_id || '',
+      nomor_peserta: peserta.nomor_peserta || '',
+    })
+  }, [open, peserta])
+
+  const save = async () => {
+    if (!form.participant_name.trim()) return toast.error('Nama wajib diisi')
+    setSaving(true)
+    try {
+      await api(`/peserta/${peserta.id}`, { method: 'PUT', body: {
+        participant_name: form.participant_name.trim(),
+        gender: form.gender,
+        nisn: form.nisn,
+        ttl: form.ttl,
+        madrasah_name: form.madrasah_name,
+        lomba_id: form.lomba_id,
+        nomor_peserta: form.nomor_peserta,
+      } })
+      toast.success('Biodata peserta diperbarui')
+      onOpenChange(false); onSaved()
+    } catch (e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
+  if (!peserta) return null
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit Biodata — {peserta.participant_name}</DialogTitle></DialogHeader>
+        <div className="grid sm:grid-cols-2 gap-3 mt-2">
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Nama Lengkap</Label>
+            <Input value={form.participant_name} onChange={(e) => set('participant_name', e.target.value)} placeholder="Nama peserta" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Jenis Kelamin</Label>
+            <Select value={form.gender} onValueChange={(v) => set('gender', v)}>
+              <SelectTrigger><SelectValue placeholder="Pilih jenis kelamin" /></SelectTrigger>
+              <SelectContent>{GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>No. Peserta</Label>
+            <Input value={form.nomor_peserta} onChange={(e) => set('nomor_peserta', e.target.value)} placeholder="001" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>NISN</Label>
+            <Input value={form.nisn} onChange={(e) => set('nisn', e.target.value)} placeholder="NISN" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tempat, Tanggal Lahir</Label>
+            <Input value={form.ttl} onChange={(e) => set('ttl', e.target.value)} placeholder="Kediri, 01 Januari 2015" />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Asal Madrasah</Label>
+            <Input value={form.madrasah_name} onChange={(e) => set('madrasah_name', e.target.value)} placeholder="Nama madrasah" />
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label>Cabang Lomba</Label>
+            <Select value={form.lomba_id} onValueChange={(v) => set('lomba_id', v)}>
+              <SelectTrigger><SelectValue placeholder="Pilih cabang lomba" /></SelectTrigger>
+              <SelectContent>{(lomba || []).map((l) => <SelectItem key={l.id} value={l.id}>{l.name} ({l.category})</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Batal</Button>
+          <Button onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Simpan</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function DataPendaftar() {
   const [peserta, setPeserta] = useState([])
   const [lomba, setLomba] = useState([])
@@ -701,6 +786,7 @@ function DataPendaftar() {
   const [lombaFilter, setLombaFilter] = useState('all')
   const [genderFilter, setGenderFilter] = useState('all')
   const [kopSurat, setKopSurat] = useState(null)
+  const [editDlg, setEditDlg] = useState({ open: false, peserta: null })
 
   const load = async () => {
     setLoading(true)
@@ -838,6 +924,7 @@ function DataPendaftar() {
                     <TableCell>{p.complete ? <Badge className="bg-emerald-600 text-white">Lengkap</Badge> : <Badge variant="outline" className="text-amber-700 border-amber-300">Belum</Badge>}</TableCell>
                     <TableCell><StatusBadge status={p.status} /></TableCell>
                     <TableCell className="text-right whitespace-nowrap">
+                      <Button size="sm" variant="outline" className="mr-1" title="Edit biodata" onClick={() => setEditDlg({ open: true, peserta: p })}><Pencil className="h-4 w-4 mr-1" />Edit</Button>
                       {p.status !== 'verified'
                         ? <Button size="sm" disabled={!p.complete} title={!p.complete ? 'Berkas belum lengkap' : ''} onClick={() => verify(p.id, 'verified')}><CheckCircle className="h-4 w-4 mr-1" />Verifikasi</Button>
                         : <Button size="sm" variant="outline" onClick={() => verify(p.id, 'pending')}>Batalkan</Button>}
@@ -851,6 +938,7 @@ function DataPendaftar() {
         </Card>
       </div>
       <div className="print-only">{Sheet}</div>
+      <EditBiodataDialogSA peserta={editDlg.peserta} lomba={lomba} open={editDlg.open} onOpenChange={(v) => setEditDlg((d) => ({ ...d, open: v }))} onSaved={load} />
     </div>
   )
 }

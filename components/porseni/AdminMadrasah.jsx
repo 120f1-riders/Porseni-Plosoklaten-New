@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
-import { Users, CheckCircle2, Clock, UserPlus, Loader2, Upload, FileText, Trash2, FolderTree, FileSpreadsheet, Download, FileCheck2, FileWarning } from 'lucide-react'
+import { Users, CheckCircle2, Clock, UserPlus, Loader2, Upload, FileText, Trash2, FolderTree, FileSpreadsheet, Download, FileCheck2, FileWarning, Pencil } from 'lucide-react'
 import { Card } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -475,8 +475,82 @@ function PersyaratanDialog({ peserta, open, onOpenChange, onSaved }) {
   )
 }
 
+function EditBiodataDialog({ peserta, lomba, open, onOpenChange, onSaved }) {
+  const [form, setForm] = useState({ participant_name: '', gender: '', nisn: '', ttl: '', lomba_id: '' })
+  const [saving, setSaving] = useState(false)
+  const set = (k, v) => setForm((f) => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (open && peserta) setForm({
+      participant_name: peserta.participant_name || '',
+      gender: peserta.gender || '',
+      nisn: peserta.nisn || '',
+      ttl: peserta.ttl || '',
+      lomba_id: peserta.lomba_id || '',
+    })
+  }, [open, peserta])
+
+  const save = async () => {
+    if (!form.participant_name.trim()) return toast.error('Nama wajib diisi')
+    setSaving(true)
+    try {
+      await api(`/peserta/${peserta.id}`, { method: 'PUT', body: {
+        participant_name: form.participant_name.trim(),
+        gender: form.gender,
+        nisn: form.nisn,
+        ttl: form.ttl,
+        lomba_id: form.lomba_id,
+      } })
+      toast.success('Biodata peserta diperbarui')
+      onOpenChange(false); onSaved()
+    } catch (e) { toast.error(e.message) } finally { setSaving(false) }
+  }
+
+  if (!peserta) return null
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader><DialogTitle>Edit Biodata — {peserta.participant_name}</DialogTitle></DialogHeader>
+        <div className="space-y-3 mt-2">
+          <div className="space-y-1.5">
+            <Label>Nama Lengkap</Label>
+            <Input value={form.participant_name} onChange={(e) => set('participant_name', e.target.value)} placeholder="Nama peserta" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Jenis Kelamin</Label>
+            <Select value={form.gender} onValueChange={(v) => set('gender', v)}>
+              <SelectTrigger><SelectValue placeholder="Pilih jenis kelamin" /></SelectTrigger>
+              <SelectContent>{GENDERS.map((g) => <SelectItem key={g.value} value={g.value}>{g.label}</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5">
+            <Label>NISN</Label>
+            <Input value={form.nisn} onChange={(e) => set('nisn', e.target.value)} placeholder="Nomor Induk Siswa Nasional" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Tempat, Tanggal Lahir</Label>
+            <Input value={form.ttl} onChange={(e) => set('ttl', e.target.value)} placeholder="Kediri, 01 Januari 2015" />
+          </div>
+          <div className="space-y-1.5">
+            <Label>Cabang Lomba</Label>
+            <Select value={form.lomba_id} onValueChange={(v) => set('lomba_id', v)}>
+              <SelectTrigger><SelectValue placeholder="Pilih cabang lomba" /></SelectTrigger>
+              <SelectContent>{(lomba || []).map((l) => <SelectItem key={l.id} value={l.id}>{l.name} ({l.category})</SelectItem>)}</SelectContent>
+            </Select>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Batal</Button>
+          <Button onClick={save} disabled={saving}>{saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}Simpan</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 function DaftarPeserta({ peserta, lomba, loading, onChange }) {
   const [dlg, setDlg] = useState({ open: false, peserta: null })
+  const [editDlg, setEditDlg] = useState({ open: false, peserta: null })
   const del = async (id) => {
     if (!confirm('Hapus peserta ini?')) return
     try { await api(`/peserta/${id}`, { method: 'DELETE' }); toast.success('Peserta dihapus'); onChange() }
@@ -524,7 +598,8 @@ function DaftarPeserta({ peserta, lomba, loading, onChange }) {
                   </TableCell>
                   <TableCell><StatusBadge status={p.status} /></TableCell>
                   <TableCell className="text-right whitespace-nowrap">
-                    <Button size="sm" variant="outline" onClick={() => setDlg({ open: true, peserta: p })}><Upload className="h-4 w-4 mr-1" />Persyaratan</Button>
+                    <Button size="sm" variant="outline" onClick={() => setEditDlg({ open: true, peserta: p })}><Pencil className="h-4 w-4 mr-1" />Edit</Button>
+                    <Button size="sm" variant="outline" className="ml-1" onClick={() => setDlg({ open: true, peserta: p })}><Upload className="h-4 w-4 mr-1" />Persyaratan</Button>
                     <Button size="icon" variant="ghost" className="text-destructive ml-1" onClick={() => del(p.id)}><Trash2 className="h-4 w-4" /></Button>
                   </TableCell>
                 </TableRow>
@@ -534,6 +609,7 @@ function DaftarPeserta({ peserta, lomba, loading, onChange }) {
         )}
       </Card>
       <PersyaratanDialog peserta={dlg.peserta} open={dlg.open} onOpenChange={(v) => setDlg((d) => ({ ...d, open: v }))} onSaved={onChange} />
+      <EditBiodataDialog peserta={editDlg.peserta} lomba={lomba} open={editDlg.open} onOpenChange={(v) => setEditDlg((d) => ({ ...d, open: v }))} onSaved={onChange} />
     </div>
   )
 }
